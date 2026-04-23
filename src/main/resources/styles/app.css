@@ -194,9 +194,15 @@
     -fx-text-fill: #264a60;
 }
 
+.table-view:focused .table-row-cell:filled:selected,
 .table-row-cell:filled:selected {
-    -fx-background-color: #d9f0fb;
-    -fx-text-fill: #15384c;
+    -fx-background-color: #1788c7;
+}
+
+.table-view:focused .table-row-cell:filled:selected .table-cell,
+.table-row-cell:filled:selected .table-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #ffffff;
 }
 
 .table-row-cell:odd:filled {

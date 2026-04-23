@@ -1,12 +1,14 @@
-# Airport Frontend (JavaFX)
+# Airport System Management
 
-Frontend mock cho hệ thống quản lý sân bay bằng JavaFX, bao gồm:
+A JavaFX mock frontend for airport operations management. The project focuses on a clean desktop UI for common airport workflows and uses in-memory data for demonstration purposes.
 
-- Login + phân quyền role
-- Main Shell + sidebar navigation
-- Dashboard KPI + recent tables + flight status bar chart
-- CRUD màn Flights / Passengers / Tickets / Boarding Pass / Luggage / Security Log
-- Profile (edit thông tin cơ bản, đổi password giả lập)
+## Features
+
+- Role-based login flow
+- Main shell with sidebar navigation
+- Dashboard with KPI cards, recent activity tables, and flight status chart
+- CRUD screens for flights, passengers, tickets, boarding passes, luggage, security logs, and employees
+- Profile screen for basic account updates and password change simulation
 
 ## Demo Accounts
 
@@ -14,12 +16,28 @@ Frontend mock cho hệ thống quản lý sân bay bằng JavaFX, bao gồm:
 - `ops@airport.com` / `123456` / `Operations Staff`
 - `security@airport.com` / `123456` / `Security Staff`
 
-## Run
+## Requirements
 
-Yêu cầu Java 17+ và Maven.
+- Java 17 or newer
+- Maven 3.9 or newer
+
+## Run
 
 ```bash
 mvn clean javafx:run
 ```
 
 Main class: `com.airport.AirportManagementApp`
+
+## Project Structure
+
+```text
+src/main/java/com/airport/AirportManagementApp.java
+src/main/resources/styles/app.css
+pom.xml
+```
+
+## Notes
+
+- This is a frontend mock application.
+- Data is stored in memory and resets each time the application restarts.

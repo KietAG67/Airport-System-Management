@@ -330,6 +330,11 @@ public class AirportManagementApp extends Application {
         return employee.getFullName() + " - " + employee.getDepartment();
     }
 
+    private String securityLogEmployeeName(SecurityLog securityLog) {
+        Employee employee = securityLog.getEmployee();
+        return employee == null ? "Unassigned" : employee.getFullName();
+    }
+
     private interface Refreshable {
         void refresh();
     }
@@ -474,7 +479,7 @@ public class AirportManagementApp extends Application {
                 case TICKET_MANAGEMENT -> new TicketsView();
                 case BOARDING_PASS -> new BoardingPassView();
                 case LUGGAGE -> new LuggageView();
-                case SECURITY_LOG -> new SecurityLogView();
+                case SECURITY_LOG -> new SecurityLogView(user);
                 case EMPLOYEE -> new EmployeesView();
                 case PROFILE -> new ProfileView(user, this::refreshTopbar);
                 default -> new Label("View not found.");
@@ -582,7 +587,7 @@ public class AirportManagementApp extends Application {
             recentSecurityTable.getColumns().addAll(
                     stringColumn("Log ID", SecurityLog::getLogId, 100),
                     stringColumn("Passenger", log -> log.getPassenger().getFullName(), 140),
-                    stringColumn("Employee", log -> log.getEmployee().getFullName(), 140),
+                    stringColumn("Employee", AirportManagementApp.this::securityLogEmployeeName, 140),
                     stringColumn("Time", log -> formatDateTime(log.getScreeningTime()), 150),
                     stringColumn("Result", log -> log.getResult().getDisplayName(), 90)
             );
@@ -1660,19 +1665,21 @@ public class AirportManagementApp extends Application {
     }
 
     private final class SecurityLogView extends VBox implements Refreshable {
+        private final UserAccount currentUser;
         private final TextField searchField = new TextField();
         private final ComboBox<SecurityResult> resultFilter = new ComboBox<>();
         private final TableView<SecurityLog> table = new TableView<>();
         private final FilteredList<SecurityLog> filteredLogs = new FilteredList<>(mockService.getSecurityLogs(), log -> true);
 
-        SecurityLogView() {
+        SecurityLogView(UserAccount currentUser) {
+            this.currentUser = currentUser;
             getStyleClass().add("content-root");
             setSpacing(14);
 
             Label title = new Label("Security Log");
             title.getStyleClass().add("section-title");
 
-            searchField.setPromptText("Search passenger, employee, result, notes");
+            searchField.setPromptText("Search passenger, result, notes");
             searchField.setPrefWidth(320);
             searchField.textProperty().addListener((obs, oldVal, newVal) -> applyFilter());
 
@@ -1705,7 +1712,6 @@ public class AirportManagementApp extends Application {
             table.getColumns().addAll(
                     stringColumn("Log ID", SecurityLog::getLogId, 110),
                     stringColumn("Passenger", log -> log.getPassenger().getFullName(), 170),
-                    stringColumn("Employee", log -> log.getEmployee().getFullName(), 160),
                     stringColumn("Screening Date", log -> formatDate(log.getScreeningTime().toLocalDate()), 120),
                     stringColumn("Screening Time", log -> log.getScreeningTime().toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")), 120),
                     stringColumn("Result", log -> log.getResult().getDisplayName(), 110),
@@ -1739,7 +1745,6 @@ public class AirportManagementApp extends Application {
                 boolean matchesKeyword = keyword.isEmpty()
                         || log.getLogId().toLowerCase().contains(keyword)
                         || log.getPassenger().getFullName().toLowerCase().contains(keyword)
-                        || log.getEmployee().getFullName().toLowerCase().contains(keyword)
                         || log.getResult().getDisplayName().toLowerCase().contains(keyword)
                         || log.getNotes().toLowerCase().contains(keyword);
                 boolean matchesResult = selectedResult == null || log.getResult() == selectedResult;
@@ -1748,8 +1753,8 @@ public class AirportManagementApp extends Application {
         }
 
         private void handleAdd() {
-            if (mockService.getPassengers().isEmpty() || mockService.getEmployees().isEmpty()) {
-                showError("Add Security Log", "Passengers and employees are required before creating a security log.");
+            if (mockService.getPassengers().isEmpty()) {
+                showError("Add Security Log", "Passengers are required before creating a security log.");
                 return;
             }
 
@@ -1757,7 +1762,7 @@ public class AirportManagementApp extends Application {
             result.ifPresent(formData -> mockService.getSecurityLogs().add(new SecurityLog(
                     mockService.nextSecurityLogId(),
                     formData.passenger(),
-                    formData.employee(),
+                    resolveCurrentEmployee(),
                     formData.screeningTime(),
                     formData.result(),
                     formData.notes()
@@ -1774,7 +1779,6 @@ public class AirportManagementApp extends Application {
             Optional<SecurityLogFormData> result = showSecurityLogDialog(selected);
             result.ifPresent(formData -> {
                 selected.setPassenger(formData.passenger());
-                selected.setEmployee(formData.employee());
                 selected.setScreeningTime(formData.screeningTime());
                 selected.setResult(formData.result());
                 selected.setNotes(formData.notes());
@@ -1810,10 +1814,6 @@ public class AirportManagementApp extends Application {
             passengerBox.setConverter(enumConverter(AirportManagementApp.this::passengerDisplay, ""));
             passengerBox.setValue(editMode ? existing.getPassenger() : null);
 
-            ComboBox<Employee> employeeBox = new ComboBox<>(mockService.getEmployees());
-            employeeBox.setConverter(enumConverter(AirportManagementApp.this::employeeDisplay, ""));
-            employeeBox.setValue(editMode ? existing.getEmployee() : null);
-
             DatePicker screeningDatePicker = new DatePicker(defaultScreeningTime.toLocalDate());
             TextField screeningTimeField = new TextField(defaultScreeningTime.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm")));
 
@@ -1832,23 +1832,21 @@ public class AirportManagementApp extends Application {
             GridPane grid = createFormGrid();
             grid.addRow(0, new Label("Log ID"), idField);
             grid.addRow(1, new Label("Passenger"), passengerBox);
-            grid.addRow(2, new Label("Employee"), employeeBox);
-            grid.addRow(3, new Label("Screening Date"), screeningDatePicker);
-            grid.addRow(4, new Label("Screening Time"), screeningTimeField);
-            grid.addRow(5, new Label("Result"), resultBox);
-            grid.addRow(6, new Label("Notes"), notesArea);
-            grid.add(errorLabel, 0, 7, 2, 1);
+            grid.addRow(2, new Label("Screening Date"), screeningDatePicker);
+            grid.addRow(3, new Label("Screening Time"), screeningTimeField);
+            grid.addRow(4, new Label("Result"), resultBox);
+            grid.addRow(5, new Label("Notes"), notesArea);
+            grid.add(errorLabel, 0, 6, 2, 1);
             dialog.getDialogPane().setContent(grid);
 
             Node saveButton = dialog.getDialogPane().lookupButton(saveType);
             saveButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
                 try {
                     Passenger passenger = passengerBox.getValue();
-                    Employee employee = employeeBox.getValue();
                     SecurityResult result = resultBox.getValue();
 
-                    if (passenger == null || employee == null || result == null) {
-                        errorLabel.setText("Passenger, employee, screening time, and result are required.");
+                    if (passenger == null || result == null) {
+                        errorLabel.setText("Passenger, screening time, and result are required.");
                         event.consume();
                         return;
                     }
@@ -1856,7 +1854,6 @@ public class AirportManagementApp extends Application {
                     LocalDateTime screeningTime = parseRequiredDateTime(screeningDatePicker.getValue(), screeningTimeField.getText(), "Screening Time");
                     dialog.setResult(new SecurityLogFormData(
                             passenger,
-                            employee,
                             screeningTime,
                             result,
                             trim(notesArea.getText())
@@ -1868,6 +1865,18 @@ public class AirportManagementApp extends Application {
             });
 
             return dialog.showAndWait();
+        }
+
+        private Employee resolveCurrentEmployee() {
+            String currentEmail = trim(currentUser.getEmail());
+            if (isBlank(currentEmail)) {
+                return null;
+            }
+
+            return mockService.getEmployees().stream()
+                    .filter(employee -> employee.getEmail().equalsIgnoreCase(currentEmail))
+                    .findFirst()
+                    .orElse(null);
         }
 
         @Override
@@ -2259,7 +2268,6 @@ public class AirportManagementApp extends Application {
 
     private record SecurityLogFormData(
             Passenger passenger,
-            Employee employee,
             LocalDateTime screeningTime,
             SecurityResult result,
             String notes

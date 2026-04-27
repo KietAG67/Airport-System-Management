@@ -1,6 +1,10 @@
 package vn.edu.hcmiu.airportmanagement.service;
 
 import vn.edu.hcmiu.airportmanagement.entity.Ticket;
+import vn.edu.hcmiu.airportmanagement.entity.Passenger;
+import vn.edu.hcmiu.airportmanagement.entity.Flight;
+import vn.edu.hcmiu.airportmanagement.repository.PassengerRepository;
+import vn.edu.hcmiu.airportmanagement.repository.FlightRepository;
 import vn.edu.hcmiu.airportmanagement.repository.TicketRepository;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -10,9 +14,15 @@ import java.util.Optional;
 public class TicketService {
 
     private final TicketRepository ticketRepository;
+    private final PassengerRepository passengerRepository;
+    private final FlightRepository flightRepository;
 
-    public TicketService(TicketRepository ticketRepository) {
+    public TicketService(TicketRepository ticketRepository,
+                         PassengerRepository passengerRepository,
+                         FlightRepository flightRepository) {
         this.ticketRepository = ticketRepository;
+        this.passengerRepository = passengerRepository;
+        this.flightRepository = flightRepository;
     }
 
     public List<Ticket> getAllTickets() {
@@ -35,6 +45,8 @@ public class TicketService {
         if (ticket.getTicketUid() == null || ticket.getTicketUid().isBlank()) {
             ticket.setTicketUid(generateTicketUid());
         }
+        ticket.setPassenger(resolvePassenger(ticket.getPassenger()));
+        ticket.setFlight(resolveFlight(ticket.getFlight()));
         return ticketRepository.save(ticket);
     }
 
@@ -42,8 +54,8 @@ public class TicketService {
         Ticket ticket = ticketRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
         ticket.setTicketUid(updated.getTicketUid());
-        ticket.setPassenger(updated.getPassenger());
-        ticket.setFlight(updated.getFlight());
+        ticket.setPassenger(resolvePassenger(updated.getPassenger()));
+        ticket.setFlight(resolveFlight(updated.getFlight()));
         ticket.setSeatNumber(updated.getSeatNumber());
         ticket.setSeatClass(updated.getSeatClass());
         ticket.setPrice(updated.getPrice());
@@ -59,5 +71,21 @@ public class TicketService {
     private String generateTicketUid() {
         long count = ticketRepository.count();
         return String.format("TCK-%04d", count + 1);
+    }
+
+    private Passenger resolvePassenger(Passenger passenger) {
+        if (passenger == null || passenger.getId() == null) {
+            throw new RuntimeException("Passenger is required");
+        }
+        return passengerRepository.findById(passenger.getId())
+                .orElseThrow(() -> new RuntimeException("Passenger not found"));
+    }
+
+    private Flight resolveFlight(Flight flight) {
+        if (flight == null || flight.getId() == null) {
+            throw new RuntimeException("Flight is required");
+        }
+        return flightRepository.findById(flight.getId())
+                .orElseThrow(() -> new RuntimeException("Flight not found"));
     }
 }

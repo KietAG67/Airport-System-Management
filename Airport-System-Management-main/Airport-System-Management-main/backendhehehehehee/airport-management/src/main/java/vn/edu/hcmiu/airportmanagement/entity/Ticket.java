@@ -15,11 +15,11 @@ public class Ticket {
     @Column(name = "ticket_uid", unique = true)
     private String ticketUid;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "passenger_id")
     private Passenger passenger;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "flight_id")
     private Flight flight;
 

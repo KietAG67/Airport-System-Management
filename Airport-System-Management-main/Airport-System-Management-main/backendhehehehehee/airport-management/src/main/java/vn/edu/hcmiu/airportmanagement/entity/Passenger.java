@@ -1,6 +1,7 @@
 package vn.edu.hcmiu.airportmanagement.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "passengers")
@@ -25,18 +26,22 @@ public class Passenger {
     @Column(name = "phone")
     private String phone;
 
+    @Column(name = "date_of_birth")
+    private LocalDate dateOfBirth;
+
     private String nationality;
 
     public Passenger() {}
 
     public Passenger(Long id, String passengerUid, String fullName, String passportNumber,
-                     String email, String phone, String nationality) {
+                     String email, String phone, LocalDate dateOfBirth, String nationality) {
         this.id = id;
         this.passengerUid = passengerUid;
         this.fullName = fullName;
         this.passportNumber = passportNumber;
         this.email = email;
         this.phone = phone;
+        this.dateOfBirth = dateOfBirth;
         this.nationality = nationality;
     }
 
@@ -52,6 +57,8 @@ public class Passenger {
     public void setEmail(String email) { this.email = email; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+    public LocalDate getDateOfBirth() { return dateOfBirth; }
+    public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
     public String getNationality() { return nationality; }
     public void setNationality(String nationality) { this.nationality = nationality; }
 }

@@ -60,10 +60,10 @@ public class DataInitializer implements CommandLineRunner {
         empRepo.saveAll(List.of(emp1, emp2, emp3, emp4, emp5, emp6));
 
         // Passengers
-        Passenger p1 = new Passenger(null, "PAS-2000", "Noah Bui", "P12345678", "noah.bui@email.com", "+84910222111", "Vietnam");
-        Passenger p2 = new Passenger(null, "PAS-2001", "Emma Le", "M99881235", "emma.le@email.com", "+6581120022", "Singapore");
-        Passenger p3 = new Passenger(null, "PAS-2002", "Lucas Vo", "N88332774", "lucas.vo@email.com", "+8210993322", "Korea");
-        Passenger p4 = new Passenger(null, "PAS-2003", "Mia Dang", "T66221880", "mia.dang@email.com", "+6688992211", "Thailand");
+        Passenger p1 = new Passenger(null, "PAS-2000", "Noah Bui", "P12345678", "noah.bui@email.com", "+84910222111", LocalDate.of(1991, 5, 12), "Vietnam");
+        Passenger p2 = new Passenger(null, "PAS-2001", "Emma Le", "M99881235", "emma.le@email.com", "+6581120022", LocalDate.of(1988, 2, 20), "Singapore");
+        Passenger p3 = new Passenger(null, "PAS-2002", "Lucas Vo", "N88332774", "lucas.vo@email.com", "+8210993322", LocalDate.of(1996, 10, 4), "Korea");
+        Passenger p4 = new Passenger(null, "PAS-2003", "Mia Dang", "T66221880", "mia.dang@email.com", "+6688992211", LocalDate.of(1994, 8, 8), "Thailand");
         passRepo.saveAll(List.of(p1, p2, p3, p4));
 
         // Flights

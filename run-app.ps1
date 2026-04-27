@@ -1,66 +1,174 @@
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $projectRoot
+$backendDir = Join-Path $projectRoot "Airport-System-Management-main\Airport-System-Management-main\backendhehehehehee\airport-management"
+$mvnw = Join-Path $backendDir "mvnw.cmd"
+$frontendPom = Join-Path $projectRoot "pom.xml"
+$logDir = Join-Path $projectRoot "target\run-logs"
+$backendOut = Join-Path $logDir "backend.out.log"
+$backendErr = Join-Path $logDir "backend.err.log"
+$backendPort = 8080
 
-$javafxVersion = "21.0.2"
-$javafxRepo = Join-Path $env:USERPROFILE ".m2\repository\org\openjfx"
-$javafxJars = @(
-    (Join-Path $javafxRepo "javafx-base\$javafxVersion\javafx-base-$javafxVersion-win.jar"),
-    (Join-Path $javafxRepo "javafx-graphics\$javafxVersion\javafx-graphics-$javafxVersion-win.jar"),
-    (Join-Path $javafxRepo "javafx-controls\$javafxVersion\javafx-controls-$javafxVersion-win.jar")
-)
+function Test-TcpPort {
+    param([int] $Port)
 
-$missingJars = $javafxJars | Where-Object { -not (Test-Path $_) }
-if ($missingJars) {
-    Write-Host "Khong tim thay thu vien JavaFX can thiet:" -ForegroundColor Red
-    $missingJars | ForEach-Object { Write-Host " - $_" -ForegroundColor Red }
-    Write-Host ""
-    Write-Host "Neu ban mo project bang IntelliJ, co the chay Maven tool window > Plugins > javafx > javafx:run." -ForegroundColor Yellow
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $client.Connect("127.0.0.1", $Port)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Wait-Backend {
+    param(
+        [int] $Port,
+        [int] $TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-TcpPort -Port $Port) {
+            return $true
+        }
+        Start-Sleep -Seconds 2
+    }
+    return $false
+}
+
+function Get-PortProcessIds {
+    param([int] $Port)
+
+    $listeners = netstat -ano | Select-String ":$Port\s+.*LISTENING"
+    $ids = @()
+    foreach ($listener in $listeners) {
+        $parts = ($listener.Line -split "\s+") | Where-Object { $_ }
+        if ($parts.Length -gt 0) {
+            $ids += [int] $parts[$parts.Length - 1]
+        }
+    }
+    return $ids | Select-Object -Unique
+}
+
+function Show-LogTail {
+    param([string] $Path)
+
+    if (Test-Path $Path) {
+        Write-Host ""
+        Write-Host "Log: $Path" -ForegroundColor Yellow
+        Get-Content $Path -Tail 60
+    }
+}
+
+function Test-ProjectBackendProcess {
+    param(
+        [int] $ProcessId,
+        [string] $BackendDirectory
+    )
+
+    $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+    if (-not $processInfo) {
+        return $false
+    }
+    return ($processInfo.CommandLine -like "*$BackendDirectory*") -or
+        ($processInfo.CommandLine -like "*AirportManagementApplication*")
+}
+
+function Stop-BackendProcesses {
+    param([string] $BackendDirectory)
+
+    if ($backendProcess -and -not $backendProcess.HasExited) {
+        & taskkill /PID $backendProcess.Id /T /F | Out-Null
+    }
+
+    Get-CimInstance Win32_Process |
+        Where-Object {
+            ($_.ProcessId -ne $PID) -and (
+                ($_.CommandLine -like "*$BackendDirectory*") -or
+                ($_.CommandLine -like "*AirportManagementApplication*")
+            )
+        } |
+        ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+}
+
+if (-not (Test-Path $mvnw)) {
+    Write-Host "Khong tim thay Maven Wrapper backend: $mvnw" -ForegroundColor Red
     Read-Host "Nhan Enter de thoat"
     exit 1
 }
 
-$javacCommand = Get-Command javac -ErrorAction SilentlyContinue
-if (-not $javacCommand) {
-    Write-Host "Khong tim thay javac. Hay cai JDK day du hoac mo project trong IntelliJ." -ForegroundColor Red
+if (-not (Test-Path $frontendPom)) {
+    Write-Host "Khong tim thay pom.xml frontend: $frontendPom" -ForegroundColor Red
     Read-Host "Nhan Enter de thoat"
     exit 1
 }
 
-$sourceDir = Join-Path $projectRoot "src\main\java"
-$resourceDir = Join-Path $projectRoot "src\main\resources"
-$outputDir = Join-Path $projectRoot "target\manual-classes"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
-New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+$backendProcess = $null
+$startedBackend = $false
+$frontendExitCode = 0
 
-$javaFiles = Get-ChildItem $sourceDir -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
-if (-not $javaFiles) {
-    Write-Host "Khong tim thay file .java trong src\\main\\java." -ForegroundColor Red
+try {
+    Set-Location $projectRoot
+
+    if (Test-TcpPort -Port $backendPort) {
+        $portProcessIds = @(Get-PortProcessIds -Port $backendPort)
+        $projectBackendOnPort = $portProcessIds | Where-Object { Test-ProjectBackendProcess -ProcessId $_ -BackendDirectory $backendDir }
+        if ($projectBackendOnPort) {
+            Write-Host "Dang tat backend cu cua project tren port $backendPort..." -ForegroundColor Yellow
+            Stop-BackendProcesses -BackendDirectory $backendDir
+            Start-Sleep -Seconds 2
+        } else {
+            Write-Host "Port $backendPort dang duoc su dung boi process khac: $($portProcessIds -join ', ')." -ForegroundColor Red
+            Write-Host "Hay tat process do hoac doi server.port truoc khi chay lai." -ForegroundColor Red
+            Read-Host "Nhan Enter de thoat"
+            exit 1
+        }
+    }
+
+    Write-Host "Dang khoi dong backend Spring Boot..." -ForegroundColor Cyan
+    $backendProcess = Start-Process `
+        -FilePath $mvnw `
+        -ArgumentList @("spring-boot:run") `
+        -WorkingDirectory $backendDir `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $backendOut `
+        -RedirectStandardError $backendErr `
+        -PassThru
+    $startedBackend = $true
+
+    if (-not (Wait-Backend -Port $backendPort -TimeoutSeconds 90)) {
+        Write-Host "Backend khong san sang tren port $backendPort." -ForegroundColor Red
+        Show-LogTail -Path $backendOut
+        Show-LogTail -Path $backendErr
+        Read-Host "Nhan Enter de thoat"
+        exit 1
+    }
+
+    Write-Host "Dang mo frontend JavaFX..." -ForegroundColor Green
+    & $mvnw -f $frontendPom javafx:run
+    $frontendExitCode = $LASTEXITCODE
+} catch {
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Show-LogTail -Path $backendOut
+    Show-LogTail -Path $backendErr
     Read-Host "Nhan Enter de thoat"
     exit 1
+} finally {
+    if ($startedBackend) {
+        Write-Host "Dang tat backend..." -ForegroundColor Cyan
+        Stop-BackendProcesses -BackendDirectory $backendDir
+    }
 }
 
-$modulePath = $javafxJars -join ";"
-
-Write-Host "Dang compile ung dung..." -ForegroundColor Cyan
-& $javacCommand.Source --module-path $modulePath --add-modules javafx.controls -encoding UTF-8 -d $outputDir $javaFiles
-if ($LASTEXITCODE -ne 0) {
-    Write-Host ""
-    Read-Host "Compile loi. Nhan Enter de thoat"
-    exit $LASTEXITCODE
-}
-
-if (Test-Path $resourceDir) {
-    Copy-Item (Join-Path $resourceDir "*") $outputDir -Recurse -Force
-}
-
-Write-Host "Dang mo giao dien..." -ForegroundColor Green
-& java --module-path $modulePath --add-modules javafx.controls -cp $outputDir com.airport.AirportManagementApp
-$exitCode = $LASTEXITCODE
-
-if ($exitCode -ne 0) {
-    Write-Host ""
-    Read-Host "Ung dung dong voi loi. Nhan Enter de thoat"
-    exit $exitCode
+if ($frontendExitCode -ne 0) {
+    Write-Host "Frontend dong voi ma loi $frontendExitCode." -ForegroundColor Red
+    Read-Host "Nhan Enter de thoat"
+    exit $frontendExitCode
 }

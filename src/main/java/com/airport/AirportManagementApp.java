@@ -1,5 +1,11 @@
 package com.airport;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import javafx.application.Application;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.collections.FXCollections;
@@ -41,6 +47,15 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.util.StringConverter;
 
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.net.ConnectException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.net.URL;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -111,7 +126,8 @@ public class AirportManagementApp extends Application {
 
             UserAccount user = mockService.authenticate(email, password, role);
             if (user == null) {
-                errorLabel.setText("Invalid credentials");
+                String errorMessage = mockService.getLastError();
+                errorLabel.setText(isBlank(errorMessage) ? "Invalid credentials" : errorMessage);
                 return;
             }
 
@@ -164,6 +180,10 @@ public class AirportManagementApp extends Application {
             dialog.getDialogPane().getStylesheets().add(cssUrl.toExternalForm());
         }
         dialog.getDialogPane().getStyleClass().add("dialog-pane-custom");
+    }
+
+    private <T> void preserveTypedDialogResult(Dialog<T> dialog, ButtonType saveType) {
+        dialog.setResultConverter(buttonType -> buttonType == saveType ? dialog.getResult() : null);
     }
 
     private void showInfo(String title, String message) {
@@ -412,7 +432,7 @@ public class AirportManagementApp extends Application {
             Region spacer = new Region();
             VBox.setVgrow(spacer, Priority.ALWAYS);
 
-            Label footer = new Label("Mock Frontend v1.0");
+            Label footer = new Label("Backend API v1.0");
             footer.getStyleClass().add("sidebar-footer");
 
             sidebar.getChildren().addAll(header, new Separator(), menuBox, spacer, footer);
@@ -691,18 +711,24 @@ public class AirportManagementApp extends Application {
 
         private void handleAdd() {
             Optional<FlightFormData> result = showFlightDialog(null);
-            result.ifPresent(formData -> mockService.getFlights().add(new Flight(
-                    mockService.nextFlightId(),
-                    formData.flightNumber(),
-                    formData.aircraft(),
-                    formData.origin(),
-                    formData.destination(),
-                    formData.departureTime(),
-                    formData.arrivalTime(),
-                    formData.actualDeparture(),
-                    formData.actualArrival(),
-                    formData.status()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addFlight(new Flight(
+                            mockService.nextFlightId(),
+                            formData.flightNumber(),
+                            formData.aircraft(),
+                            formData.origin(),
+                            formData.destination(),
+                            formData.departureTime(),
+                            formData.arrivalTime(),
+                            formData.actualDeparture(),
+                            formData.actualArrival(),
+                            formData.status()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Flight", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -723,7 +749,12 @@ public class AirportManagementApp extends Application {
                 selected.setActualDeparture(formData.actualDeparture());
                 selected.setActualArrival(formData.actualArrival());
                 selected.setStatus(formData.status());
-                table.refresh();
+                try {
+                    mockService.updateFlight(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Flight", exception.getMessage());
+                }
             });
         }
 
@@ -734,7 +765,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Flight", "Delete selected flight " + selected.getFlightNumber() + "?")) {
-                mockService.removeFlight(selected);
+                try {
+                    mockService.removeFlight(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Flight", exception.getMessage());
+                }
             }
         }
 
@@ -746,6 +781,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(520);
 
             LocalDateTime defaultDeparture = editMode ? existing.getDepartureTime() : currentTimeRounded().plusHours(2);
@@ -917,15 +953,21 @@ public class AirportManagementApp extends Application {
 
         private void handleAdd() {
             Optional<PassengerFormData> result = showPassengerDialog(null);
-            result.ifPresent(formData -> mockService.getPassengers().add(new Passenger(
-                    mockService.nextPassengerId(),
-                    formData.passportId(),
-                    formData.fullName(),
-                    formData.dateOfBirth(),
-                    formData.nationality(),
-                    formData.email(),
-                    formData.phone()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addPassenger(new Passenger(
+                            mockService.nextPassengerId(),
+                            formData.passportId(),
+                            formData.fullName(),
+                            formData.dateOfBirth(),
+                            formData.nationality(),
+                            formData.email(),
+                            formData.phone()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Passenger", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -943,7 +985,12 @@ public class AirportManagementApp extends Application {
                 selected.setNationality(formData.nationality());
                 selected.setEmail(formData.email());
                 selected.setPhone(formData.phone());
-                table.refresh();
+                try {
+                    mockService.updatePassenger(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Passenger", exception.getMessage());
+                }
             });
         }
 
@@ -954,7 +1001,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Passenger", "Delete selected passenger " + selected.getFullName() + "?")) {
-                mockService.removePassenger(selected);
+                try {
+                    mockService.removePassenger(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Passenger", exception.getMessage());
+                }
             }
         }
 
@@ -966,6 +1017,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(500);
 
             TextField idField = createReadOnlyField(editMode ? existing.getPassengerId() : "Auto-generated on save");
@@ -1129,16 +1181,22 @@ public class AirportManagementApp extends Application {
             }
 
             Optional<TicketFormData> result = showTicketDialog(null);
-            result.ifPresent(formData -> mockService.getTickets().add(new Ticket(
-                    mockService.nextTicketId(),
-                    formData.passenger(),
-                    formData.flight(),
-                    formData.seatNumber(),
-                    formData.seatClass(),
-                    formData.price(),
-                    formData.purchaseDate(),
-                    formData.status()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addTicket(new Ticket(
+                            mockService.nextTicketId(),
+                            formData.passenger(),
+                            formData.flight(),
+                            formData.seatNumber(),
+                            formData.seatClass(),
+                            formData.price(),
+                            formData.purchaseDate(),
+                            formData.status()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Ticket", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -1157,10 +1215,12 @@ public class AirportManagementApp extends Application {
                 selected.setPrice(formData.price());
                 selected.setPurchaseDate(formData.purchaseDate());
                 selected.setStatus(formData.status());
-                if (selected.getStatus() == TicketStatus.CANCELLED) {
-                    mockService.removeBoardingPassesForTicket(selected);
+                try {
+                    mockService.updateTicket(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Ticket", exception.getMessage());
                 }
-                table.refresh();
             });
         }
 
@@ -1171,7 +1231,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Ticket", "Delete selected ticket " + selected.getTicketId() + "?")) {
-                mockService.removeTicket(selected);
+                try {
+                    mockService.removeTicket(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Ticket", exception.getMessage());
+                }
             }
         }
 
@@ -1183,6 +1247,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(500);
 
             TextField idField = createReadOnlyField(editMode ? existing.getTicketId() : "Auto-generated on save");
@@ -1360,8 +1425,11 @@ public class AirportManagementApp extends Application {
                         formData.boardingTime(),
                         formData.status()
                 );
-                mockService.getBoardingPasses().add(boardingPass);
-                mockService.syncTicketStatusFromBoardingPass(boardingPass);
+                try {
+                    mockService.addBoardingPass(boardingPass);
+                } catch (RuntimeException exception) {
+                    showError("Add Boarding Pass", exception.getMessage());
+                }
             });
         }
 
@@ -1378,8 +1446,12 @@ public class AirportManagementApp extends Application {
                 selected.setGate(formData.gate());
                 selected.setBoardingTime(formData.boardingTime());
                 selected.setStatus(formData.status());
-                mockService.syncTicketStatusFromBoardingPass(selected);
-                table.refresh();
+                try {
+                    mockService.updateBoardingPass(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Boarding Pass", exception.getMessage());
+                }
             });
         }
 
@@ -1390,7 +1462,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Boarding Pass", "Delete selected boarding pass " + selected.getBoardingPassId() + "?")) {
-                mockService.removeBoardingPass(selected);
+                try {
+                    mockService.removeBoardingPass(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Boarding Pass", exception.getMessage());
+                }
             }
         }
 
@@ -1402,6 +1478,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(500);
 
             LocalDateTime defaultBoardingTime = editMode ? existing.getBoardingTime() : currentTimeRounded().plusMinutes(30);
@@ -1543,13 +1620,19 @@ public class AirportManagementApp extends Application {
             }
 
             Optional<LuggageFormData> result = showLuggageDialog(null);
-            result.ifPresent(formData -> mockService.getLuggageItems().add(new Luggage(
-                    mockService.nextLuggageId(),
-                    formData.ticket(),
-                    formData.weight(),
-                    formData.status(),
-                    formData.checkedInAt()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addLuggage(new Luggage(
+                            mockService.nextLuggageId(),
+                            formData.ticket(),
+                            formData.weight(),
+                            formData.status(),
+                            formData.checkedInAt()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Luggage", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -1565,7 +1648,12 @@ public class AirportManagementApp extends Application {
                 selected.setWeight(formData.weight());
                 selected.setStatus(formData.status());
                 selected.setCheckedInAt(formData.checkedInAt());
-                table.refresh();
+                try {
+                    mockService.updateLuggage(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Luggage", exception.getMessage());
+                }
             });
         }
 
@@ -1576,7 +1664,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Luggage", "Delete selected luggage " + selected.getLuggageId() + "?")) {
-                mockService.removeLuggage(selected);
+                try {
+                    mockService.removeLuggage(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Luggage", exception.getMessage());
+                }
             }
         }
 
@@ -1588,6 +1680,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(500);
 
             LocalDateTime defaultCheckedInAt = editMode ? existing.getCheckedInAt() : currentTimeRounded();
@@ -1759,14 +1852,20 @@ public class AirportManagementApp extends Application {
             }
 
             Optional<SecurityLogFormData> result = showSecurityLogDialog(null);
-            result.ifPresent(formData -> mockService.getSecurityLogs().add(new SecurityLog(
-                    mockService.nextSecurityLogId(),
-                    formData.passenger(),
-                    resolveCurrentEmployee(),
-                    formData.screeningTime(),
-                    formData.result(),
-                    formData.notes()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addSecurityLog(new SecurityLog(
+                            mockService.nextSecurityLogId(),
+                            formData.passenger(),
+                            resolveCurrentEmployee(),
+                            formData.screeningTime(),
+                            formData.result(),
+                            formData.notes()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Security Log", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -1782,7 +1881,12 @@ public class AirportManagementApp extends Application {
                 selected.setScreeningTime(formData.screeningTime());
                 selected.setResult(formData.result());
                 selected.setNotes(formData.notes());
-                table.refresh();
+                try {
+                    mockService.updateSecurityLog(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Security Log", exception.getMessage());
+                }
             });
         }
 
@@ -1793,7 +1897,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Security Log", "Delete selected security log " + selected.getLogId() + "?")) {
-                mockService.removeSecurityLog(selected);
+                try {
+                    mockService.removeSecurityLog(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Security Log", exception.getMessage());
+                }
             }
         }
 
@@ -1805,6 +1913,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(540);
 
             LocalDateTime defaultScreeningTime = editMode ? existing.getScreeningTime() : currentTimeRounded();
@@ -1942,14 +2051,20 @@ public class AirportManagementApp extends Application {
 
         private void handleAdd() {
             Optional<EmployeeFormData> result = showEmployeeDialog(null);
-            result.ifPresent(formData -> mockService.getEmployees().add(new Employee(
-                    mockService.nextEmployeeId(),
-                    formData.fullName(),
-                    formData.email(),
-                    formData.phone(),
-                    formData.department(),
-                    formData.jobTitle()
-            )));
+            result.ifPresent(formData -> {
+                try {
+                    mockService.addEmployee(new Employee(
+                            mockService.nextEmployeeId(),
+                            formData.fullName(),
+                            formData.email(),
+                            formData.phone(),
+                            formData.department(),
+                            formData.jobTitle()
+                    ));
+                } catch (RuntimeException exception) {
+                    showError("Add Employee", exception.getMessage());
+                }
+            });
         }
 
         private void handleEdit() {
@@ -1966,7 +2081,12 @@ public class AirportManagementApp extends Application {
                 selected.setPhone(formData.phone());
                 selected.setDepartment(formData.department());
                 selected.setJobTitle(formData.jobTitle());
-                table.refresh();
+                try {
+                    mockService.updateEmployee(selected);
+                    table.refresh();
+                } catch (RuntimeException exception) {
+                    showError("Edit Employee", exception.getMessage());
+                }
             });
         }
 
@@ -1977,7 +2097,11 @@ public class AirportManagementApp extends Application {
                 return;
             }
             if (confirm("Delete Employee", "Delete selected employee " + selected.getFullName() + "?")) {
-                mockService.removeEmployee(selected);
+                try {
+                    mockService.removeEmployee(selected);
+                } catch (RuntimeException exception) {
+                    showError("Delete Employee", exception.getMessage());
+                }
             }
         }
 
@@ -1989,6 +2113,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType(editMode ? "Save" : "Add", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
             dialog.getDialogPane().setPrefWidth(500);
 
             TextField idField = createReadOnlyField(editMode ? existing.getEmployeeId() : "Auto-generated on save");
@@ -2102,6 +2227,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
 
             TextField fullNameInput = new TextField(user.getFullName());
             TextField emailInput = new TextField(user.getEmail());
@@ -2158,6 +2284,7 @@ public class AirportManagementApp extends Application {
 
             ButtonType saveType = new ButtonType("Change", ButtonBar.ButtonData.OK_DONE);
             dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+            preserveTypedDialogResult(dialog, saveType);
 
             PasswordField currentPasswordField = new PasswordField();
             PasswordField newPasswordField = new PasswordField();
@@ -2305,156 +2432,58 @@ public class AirportManagementApp extends Application {
         private final ObservableList<SecurityLog> securityLogs = FXCollections.observableArrayList();
         private final ObservableList<Employee> employees = FXCollections.observableArrayList();
 
-        private final Map<String, UserAccount> accountByEmail = new HashMap<>();
+        private final ApiClient apiClient = new ApiClient(System.getProperty("airport.api.baseUrl", "http://localhost:8080/api"));
+        private final Map<String, Long> flightRemoteIds = new HashMap<>();
+        private final Map<String, Long> passengerRemoteIds = new HashMap<>();
+        private final Map<String, Long> ticketRemoteIds = new HashMap<>();
+        private final Map<String, Long> boardingPassRemoteIds = new HashMap<>();
+        private final Map<String, Long> luggageRemoteIds = new HashMap<>();
+        private final Map<String, Long> securityLogRemoteIds = new HashMap<>();
+        private final Map<String, Long> employeeRemoteIds = new HashMap<>();
 
-        private int flightCounter = 1004;
-        private int passengerCounter = 2004;
-        private int ticketCounter = 1004;
-        private int boardingCounter = 2002;
-        private int luggageCounter = 3004;
-        private int securityCounter = 4004;
-        private int employeeCounter = 5006;
+        private int flightCounter = 1;
+        private int passengerCounter = 1;
+        private int ticketCounter = 1;
+        private int boardingCounter = 1;
+        private int luggageCounter = 1;
+        private int securityCounter = 1;
+        private int employeeCounter = 1;
+        private String lastError = "";
 
-        MockAirportService() {
-            seedAccounts();
-            seedMockData();
-        }
-
-        private void seedAccounts() {
-            UserAccount admin = new UserAccount(
-                    "admin@airport.com",
-                    "123456",
-                    Role.ADMIN,
-                    "Aria Nguyen",
-                    "Management",
-                    "+84 912 111 222"
-            );
-            UserAccount operations = new UserAccount(
-                    "ops@airport.com",
-                    "123456",
-                    Role.OPERATIONS_STAFF,
-                    "Minh Tran",
-                    "Operations",
-                    "+84 987 333 444"
-            );
-            UserAccount security = new UserAccount(
-                    "security@airport.com",
-                    "123456",
-                    Role.SECURITY_STAFF,
-                    "Linh Pham",
-                    "Security",
-                    "+84 901 555 666"
-            );
-
-            accountByEmail.put(admin.getEmail().toLowerCase(), admin);
-            accountByEmail.put(operations.getEmail().toLowerCase(), operations);
-            accountByEmail.put(security.getEmail().toLowerCase(), security);
-        }
-
-        private void seedMockData() {
-            LocalDateTime now = LocalDateTime.now().withSecond(0).withNano(0);
-
-            Employee e1 = new Employee("EMP-5000", "Aria Nguyen", "admin@airport.com", "+84 912 111 222", "Management", "Airport Manager");
-            Employee e2 = new Employee("EMP-5001", "Minh Tran", "ops@airport.com", "+84 987 333 444", "Operations", "Operations Coordinator");
-            Employee e3 = new Employee("EMP-5002", "Linh Pham", "security@airport.com", "+84 901 555 666", "Security", "Security Supervisor");
-            Employee e4 = new Employee("EMP-5003", "Bao Nguyen", "bao.nguyen@airport.com", "+84 933 101 202", "Security", "Screening Officer");
-            Employee e5 = new Employee("EMP-5004", "Khanh Le", "khanh.le@airport.com", "+84 934 202 303", "Security", "Screening Officer");
-            Employee e6 = new Employee("EMP-5005", "Lan Vu", "lan.vu@airport.com", "+84 935 303 404", "Customer Service", "Terminal Coordinator");
-            employees.addAll(e1, e2, e3, e4, e5, e6);
-
-            Flight f1 = new Flight(
-                    "FLT-1000",
-                    "VN235",
-                    "Airbus A321",
-                    "Hanoi",
-                    "Bangkok",
-                    now.plusHours(2),
-                    now.plusHours(4),
-                    null,
-                    null,
-                    FlightStatus.ON_TIME
-            );
-            Flight f2 = new Flight(
-                    "FLT-1001",
-                    "SQ184",
-                    "Boeing 787",
-                    "Singapore",
-                    "Ho Chi Minh City",
-                    now.plusHours(3),
-                    now.plusHours(5),
-                    null,
-                    null,
-                    FlightStatus.DELAYED
-            );
-            Flight f3 = new Flight(
-                    "FLT-1002",
-                    "QH311",
-                    "Airbus A320",
-                    "Da Nang",
-                    "Seoul",
-                    now.plusMinutes(45),
-                    now.plusHours(5),
-                    null,
-                    null,
-                    FlightStatus.BOARDING
-            );
-            Flight f4 = new Flight(
-                    "FLT-1003",
-                    "EK492",
-                    "Boeing 777",
-                    "Dubai",
-                    "Bangkok",
-                    now.minusHours(5),
-                    now.minusHours(1),
-                    now.minusHours(4).minusMinutes(45),
-                    now.minusMinutes(50),
-                    FlightStatus.ARRIVED
-            );
-            flights.addAll(f1, f2, f3, f4);
-
-            Passenger p1 = new Passenger("PAS-2000", "P12345678", "Noah Bui", LocalDate.of(1991, 5, 12), "Vietnam", "noah.bui@email.com", "+84 910 222 111");
-            Passenger p2 = new Passenger("PAS-2001", "M99881235", "Emma Le", LocalDate.of(1988, 2, 20), "Singapore", "emma.le@email.com", "+65 8112 0022");
-            Passenger p3 = new Passenger("PAS-2002", "N88332774", "Lucas Vo", LocalDate.of(1996, 10, 4), "Korea", "lucas.vo@email.com", "+82 1099 3322");
-            Passenger p4 = new Passenger("PAS-2003", "T66221880", "Mia Dang", LocalDate.of(1994, 8, 8), "Thailand", "mia.dang@email.com", "+66 8899 2211");
-            passengers.addAll(p1, p2, p3, p4);
-
-            Ticket t1 = new Ticket("TCK-1000", p1, f1, "12A", SeatClass.ECONOMY, 179.0, LocalDate.now().minusDays(3), TicketStatus.BOOKED);
-            Ticket t2 = new Ticket("TCK-1001", p2, f2, "3C", SeatClass.BUSINESS, 420.0, LocalDate.now().minusDays(2), TicketStatus.CHECKED_IN);
-            Ticket t3 = new Ticket("TCK-1002", p3, f3, "1A", SeatClass.FIRST, 850.0, LocalDate.now().minusDays(1), TicketStatus.BOARDED);
-            Ticket t4 = new Ticket("TCK-1003", p4, f1, "18F", SeatClass.ECONOMY, 190.0, LocalDate.now(), TicketStatus.CANCELLED);
-            tickets.addAll(t1, t2, t3, t4);
-
-            BoardingPass b1 = new BoardingPass("BDP-2000", t2, "B12", f2.getDepartureTime().minusMinutes(35), BoardingPassStatus.ISSUED);
-            BoardingPass b2 = new BoardingPass("BDP-2001", t3, "A04", f3.getDepartureTime().minusMinutes(40), BoardingPassStatus.BOARDED);
-            boardingPasses.addAll(b1, b2);
-
-            Luggage l1 = new Luggage("LUG-3000", t1, 21.5, LuggageStatus.CHECKED_IN, now.minusHours(2));
-            Luggage l2 = new Luggage("LUG-3001", t2, 16.2, LuggageStatus.LOADED, now.minusHours(3));
-            Luggage l3 = new Luggage("LUG-3002", t3, 19.0, LuggageStatus.IN_TRANSIT, now.minusHours(1));
-            Luggage l4 = new Luggage("LUG-3003", t2, 22.0, LuggageStatus.DELIVERED, now.minusDays(1));
-            luggageItems.addAll(l1, l2, l3, l4);
-
-            SecurityLog s1 = new SecurityLog("SEC-4000", p1, e3, now.minusHours(2), SecurityResult.CLEARED, "Routine check complete");
-            SecurityLog s2 = new SecurityLog("SEC-4001", p2, e4, now.minusHours(1), SecurityResult.FLAGGED, "Carry-on needs manual check");
-            SecurityLog s3 = new SecurityLog("SEC-4002", p3, e5, now.minusMinutes(45), SecurityResult.CLEARED, "No issue found");
-            SecurityLog s4 = new SecurityLog("SEC-4003", p4, e6, now.minusMinutes(15), SecurityResult.REJECTED, "Restricted item detected");
-            securityLogs.addAll(s1, s2, s3, s4);
+        String getLastError() {
+            return lastError;
         }
 
         UserAccount authenticate(String email, String password, Role role) {
-            UserAccount account = accountByEmail.get(email.toLowerCase());
-            if (account == null || !account.getPassword().equals(password) || account.getRole() != role) {
+            lastError = "";
+            try {
+                AuthResponse response = apiClient.login(email, password);
+                Role backendRole = parseRole(response.role);
+                if (backendRole != role) {
+                    lastError = "Selected role does not match this account.";
+                    return null;
+                }
+                apiClient.setToken(response.token);
+                loadRemoteData();
+
+                Employee matchedEmployee = employees.stream()
+                        .filter(employee -> employee.getEmail().equalsIgnoreCase(email))
+                        .findFirst()
+                        .orElse(null);
+                String fullName = isBlank(response.fullName) ? email : response.fullName;
+                String department = matchedEmployee == null ? role.getDisplayName() : matchedEmployee.getDepartment();
+                String phone = matchedEmployee == null ? "" : matchedEmployee.getPhone();
+                return new UserAccount(email, password, role, fullName, department, phone);
+            } catch (ApiException exception) {
+                lastError = exception.getMessage();
                 return null;
             }
-            return account;
         }
 
         void updateAccountDetails(UserAccount user, String fullName, String email, String phone) {
-            accountByEmail.remove(user.getEmail().toLowerCase());
             user.setFullName(fullName);
             user.setEmail(email);
             user.setPhone(phone);
-            accountByEmail.put(user.getEmail().toLowerCase(), user);
         }
 
         ObservableList<Flight> getFlights() {
@@ -2486,31 +2515,110 @@ public class AirportManagementApp extends Application {
         }
 
         String nextFlightId() {
-            return "FLT-" + flightCounter++;
+            return nextId("FLT", flightCounter++);
         }
 
         String nextPassengerId() {
-            return "PAS-" + passengerCounter++;
+            return nextId("PAS", passengerCounter++);
         }
 
         String nextTicketId() {
-            return "TCK-" + ticketCounter++;
+            return nextId("TCK", ticketCounter++);
         }
 
         String nextBoardingId() {
-            return "BDP-" + boardingCounter++;
+            return nextId("BDP", boardingCounter++);
         }
 
         String nextLuggageId() {
-            return "LUG-" + luggageCounter++;
+            return nextId("LUG", luggageCounter++);
         }
 
         String nextSecurityLogId() {
-            return "SEC-" + securityCounter++;
+            return nextId("SEC", securityCounter++);
         }
 
         String nextEmployeeId() {
-            return "EMP-" + employeeCounter++;
+            return nextId("EMP", employeeCounter++);
+        }
+
+        void addFlight(Flight flight) {
+            apiClient.post("/flights", toRemoteFlight(flight), RemoteFlight.class);
+            loadRemoteData();
+        }
+
+        void updateFlight(Flight flight) {
+            apiClient.put("/flights/" + requireRemoteId(flightRemoteIds, flight.getFlightId(), "flight"), toRemoteFlight(flight), RemoteFlight.class);
+            loadRemoteData();
+        }
+
+        void addPassenger(Passenger passenger) {
+            apiClient.post("/passengers", toRemotePassenger(passenger), RemotePassenger.class);
+            loadRemoteData();
+        }
+
+        void updatePassenger(Passenger passenger) {
+            apiClient.put("/passengers/" + requireRemoteId(passengerRemoteIds, passenger.getPassengerId(), "passenger"), toRemotePassenger(passenger), RemotePassenger.class);
+            loadRemoteData();
+        }
+
+        void addTicket(Ticket ticket) {
+            apiClient.post("/tickets", toRemoteTicket(ticket), RemoteTicket.class);
+            loadRemoteData();
+        }
+
+        void updateTicket(Ticket ticket) {
+            if (ticket.getStatus() == TicketStatus.CANCELLED) {
+                deleteBoardingPassesForTicketRemote(ticket);
+            }
+            apiClient.put("/tickets/" + requireRemoteId(ticketRemoteIds, ticket.getTicketId(), "ticket"), toRemoteTicket(ticket), RemoteTicket.class);
+            loadRemoteData();
+        }
+
+        void addBoardingPass(BoardingPass boardingPass) {
+            apiClient.post("/boarding-passes", toRemoteBoardingPass(boardingPass), RemoteBoardingPass.class);
+            syncTicketStatusLocal(boardingPass);
+            updateTicketRemote(boardingPass.getTicket());
+            loadRemoteData();
+        }
+
+        void updateBoardingPass(BoardingPass boardingPass) {
+            apiClient.put("/boarding-passes/" + requireRemoteId(boardingPassRemoteIds, boardingPass.getBoardingPassId(), "boarding pass"),
+                    toRemoteBoardingPass(boardingPass), RemoteBoardingPass.class);
+            syncTicketStatusLocal(boardingPass);
+            updateTicketRemote(boardingPass.getTicket());
+            loadRemoteData();
+        }
+
+        void addLuggage(Luggage luggage) {
+            apiClient.post("/luggages", toRemoteLuggage(luggage), RemoteLuggage.class);
+            loadRemoteData();
+        }
+
+        void updateLuggage(Luggage luggage) {
+            apiClient.put("/luggages/" + requireRemoteId(luggageRemoteIds, luggage.getLuggageId(), "luggage"), toRemoteLuggage(luggage), RemoteLuggage.class);
+            loadRemoteData();
+        }
+
+        void addSecurityLog(SecurityLog securityLog) {
+            apiClient.post("/security-logs", toRemoteSecurityLog(securityLog), RemoteSecurityLog.class);
+            loadRemoteData();
+        }
+
+        void updateSecurityLog(SecurityLog securityLog) {
+            apiClient.put("/security-logs/" + requireRemoteId(securityLogRemoteIds, securityLog.getLogId(), "security log"),
+                    toRemoteSecurityLog(securityLog), RemoteSecurityLog.class);
+            loadRemoteData();
+        }
+
+        void addEmployee(Employee employee) {
+            apiClient.post("/employees", toRemoteEmployee(employee), RemoteEmployee.class);
+            loadRemoteData();
+        }
+
+        void updateEmployee(Employee employee) {
+            apiClient.put("/employees/" + requireRemoteId(employeeRemoteIds, employee.getEmployeeId(), "employee"), toRemoteEmployee(employee), RemoteEmployee.class);
+            loadRemoteData();
         }
 
         List<Ticket> getSelectableTickets(Ticket currentTicket) {
@@ -2531,62 +2639,65 @@ public class AirportManagementApp extends Application {
         }
 
         void syncTicketStatusFromBoardingPass(BoardingPass boardingPass) {
-            if (boardingPass == null || boardingPass.getTicket() == null) {
-                return;
-            }
-            Ticket ticket = boardingPass.getTicket();
-            if (ticket.getStatus() == TicketStatus.CANCELLED) {
-                return;
-            }
-            if (boardingPass.getStatus() == BoardingPassStatus.BOARDED) {
-                ticket.setStatus(TicketStatus.BOARDED);
-            } else {
-                ticket.setStatus(TicketStatus.CHECKED_IN);
-            }
+            syncTicketStatusLocal(boardingPass);
+            updateTicketRemote(boardingPass.getTicket());
+            loadRemoteData();
         }
 
         void removeBoardingPassesForTicket(Ticket ticket) {
-            boardingPasses.removeIf(pass -> pass.getTicket() == ticket);
+            deleteBoardingPassesForTicketRemote(ticket);
+            loadRemoteData();
         }
 
         void removeFlight(Flight flight) {
-            List<Ticket> relatedTickets = tickets.stream()
+            tickets.stream()
                     .filter(ticket -> ticket.getFlight() == flight)
-                    .collect(Collectors.toList());
-            relatedTickets.forEach(this::removeTicket);
-            flights.remove(flight);
+                    .collect(Collectors.toList())
+                    .forEach(this::deleteTicketTreeRemote);
+            deleteRemote("/flights", flightRemoteIds, flight.getFlightId());
+            loadRemoteData();
         }
 
         void removePassenger(Passenger passenger) {
-            List<Ticket> relatedTickets = tickets.stream()
+            tickets.stream()
                     .filter(ticket -> ticket.getPassenger() == passenger)
-                    .collect(Collectors.toList());
-            relatedTickets.forEach(this::removeTicket);
-            securityLogs.removeIf(log -> log.getPassenger() == passenger);
-            passengers.remove(passenger);
+                    .collect(Collectors.toList())
+                    .forEach(this::deleteTicketTreeRemote);
+            securityLogs.stream()
+                    .filter(log -> log.getPassenger() == passenger)
+                    .collect(Collectors.toList())
+                    .forEach(log -> deleteRemote("/security-logs", securityLogRemoteIds, log.getLogId()));
+            deleteRemote("/passengers", passengerRemoteIds, passenger.getPassengerId());
+            loadRemoteData();
         }
 
         void removeTicket(Ticket ticket) {
-            removeBoardingPassesForTicket(ticket);
-            luggageItems.removeIf(luggage -> luggage.getTicket() == ticket);
-            tickets.remove(ticket);
+            deleteTicketTreeRemote(ticket);
+            loadRemoteData();
         }
 
         void removeBoardingPass(BoardingPass boardingPass) {
-            boardingPasses.remove(boardingPass);
+            deleteRemote("/boarding-passes", boardingPassRemoteIds, boardingPass.getBoardingPassId());
+            loadRemoteData();
         }
 
         void removeLuggage(Luggage luggage) {
-            luggageItems.remove(luggage);
+            deleteRemote("/luggages", luggageRemoteIds, luggage.getLuggageId());
+            loadRemoteData();
         }
 
         void removeSecurityLog(SecurityLog securityLog) {
-            securityLogs.remove(securityLog);
+            deleteRemote("/security-logs", securityLogRemoteIds, securityLog.getLogId());
+            loadRemoteData();
         }
 
         void removeEmployee(Employee employee) {
-            securityLogs.removeIf(log -> log.getEmployee() == employee);
-            employees.remove(employee);
+            securityLogs.stream()
+                    .filter(log -> log.getEmployee() == employee)
+                    .collect(Collectors.toList())
+                    .forEach(log -> deleteRemote("/security-logs", securityLogRemoteIds, log.getLogId()));
+            deleteRemote("/employees", employeeRemoteIds, employee.getEmployeeId());
+            loadRemoteData();
         }
 
         long countTotalFlights() {
@@ -2634,6 +2745,650 @@ public class AirportManagementApp extends Application {
                 counts.put(flight.getStatus(), counts.getOrDefault(flight.getStatus(), 0L) + 1);
             }
             return counts;
+        }
+
+        private void loadRemoteData() {
+            List<RemoteEmployee> remoteEmployees = apiClient.getList("/employees", RemoteEmployee.class);
+            List<RemotePassenger> remotePassengers = apiClient.getList("/passengers", RemotePassenger.class);
+            List<RemoteFlight> remoteFlights = apiClient.getList("/flights", RemoteFlight.class);
+            List<RemoteTicket> remoteTickets = apiClient.getList("/tickets", RemoteTicket.class);
+            List<RemoteBoardingPass> remoteBoardingPasses = apiClient.getList("/boarding-passes", RemoteBoardingPass.class);
+            List<RemoteLuggage> remoteLuggage = apiClient.getList("/luggages", RemoteLuggage.class);
+            List<RemoteSecurityLog> remoteSecurityLogs = apiClient.getList("/security-logs", RemoteSecurityLog.class);
+
+            Map<Long, Employee> employeesById = new HashMap<>();
+            Map<Long, Passenger> passengersById = new HashMap<>();
+            Map<Long, Flight> flightsById = new HashMap<>();
+            Map<Long, Ticket> ticketsById = new HashMap<>();
+
+            List<Employee> loadedEmployees = remoteEmployees.stream()
+                    .map(this::toEmployee)
+                    .collect(Collectors.toList());
+            employeeRemoteIds.clear();
+            for (int i = 0; i < loadedEmployees.size(); i++) {
+                RemoteEmployee remote = remoteEmployees.get(i);
+                Employee employee = loadedEmployees.get(i);
+                putRemoteId(employeeRemoteIds, employee.getEmployeeId(), remote.id);
+                if (remote.id != null) {
+                    employeesById.put(remote.id, employee);
+                }
+            }
+
+            List<Passenger> loadedPassengers = remotePassengers.stream()
+                    .map(this::toPassenger)
+                    .collect(Collectors.toList());
+            passengerRemoteIds.clear();
+            for (int i = 0; i < loadedPassengers.size(); i++) {
+                RemotePassenger remote = remotePassengers.get(i);
+                Passenger passenger = loadedPassengers.get(i);
+                putRemoteId(passengerRemoteIds, passenger.getPassengerId(), remote.id);
+                if (remote.id != null) {
+                    passengersById.put(remote.id, passenger);
+                }
+            }
+
+            List<Flight> loadedFlights = remoteFlights.stream()
+                    .map(this::toFlight)
+                    .collect(Collectors.toList());
+            flightRemoteIds.clear();
+            for (int i = 0; i < loadedFlights.size(); i++) {
+                RemoteFlight remote = remoteFlights.get(i);
+                Flight flight = loadedFlights.get(i);
+                putRemoteId(flightRemoteIds, flight.getFlightId(), remote.id);
+                if (remote.id != null) {
+                    flightsById.put(remote.id, flight);
+                }
+            }
+
+            List<Ticket> loadedTickets = remoteTickets.stream()
+                    .map(remote -> toTicket(remote, passengersById, flightsById))
+                    .filter(ticket -> ticket != null)
+                    .collect(Collectors.toList());
+            ticketRemoteIds.clear();
+            for (int i = 0; i < loadedTickets.size(); i++) {
+                RemoteTicket remote = remoteTickets.get(i);
+                Ticket ticket = loadedTickets.get(i);
+                putRemoteId(ticketRemoteIds, ticket.getTicketId(), remote.id);
+                if (remote.id != null) {
+                    ticketsById.put(remote.id, ticket);
+                }
+            }
+
+            List<BoardingPass> loadedBoardingPasses = remoteBoardingPasses.stream()
+                    .map(remote -> toBoardingPass(remote, ticketsById))
+                    .filter(boardingPass -> boardingPass != null)
+                    .collect(Collectors.toList());
+            boardingPassRemoteIds.clear();
+            for (int i = 0; i < loadedBoardingPasses.size(); i++) {
+                putRemoteId(boardingPassRemoteIds, loadedBoardingPasses.get(i).getBoardingPassId(), remoteBoardingPasses.get(i).id);
+            }
+
+            List<Luggage> loadedLuggage = remoteLuggage.stream()
+                    .map(remote -> toLuggage(remote, ticketsById))
+                    .filter(luggage -> luggage != null)
+                    .collect(Collectors.toList());
+            luggageRemoteIds.clear();
+            for (int i = 0; i < loadedLuggage.size(); i++) {
+                putRemoteId(luggageRemoteIds, loadedLuggage.get(i).getLuggageId(), remoteLuggage.get(i).id);
+            }
+
+            List<SecurityLog> loadedSecurityLogs = remoteSecurityLogs.stream()
+                    .map(remote -> toSecurityLog(remote, passengersById, employeesById))
+                    .filter(log -> log != null)
+                    .collect(Collectors.toList());
+            securityLogRemoteIds.clear();
+            for (int i = 0; i < loadedSecurityLogs.size(); i++) {
+                putRemoteId(securityLogRemoteIds, loadedSecurityLogs.get(i).getLogId(), remoteSecurityLogs.get(i).id);
+            }
+
+            employees.setAll(loadedEmployees);
+            passengers.setAll(loadedPassengers);
+            flights.setAll(loadedFlights);
+            tickets.setAll(loadedTickets);
+            boardingPasses.setAll(loadedBoardingPasses);
+            luggageItems.setAll(loadedLuggage);
+            securityLogs.setAll(loadedSecurityLogs);
+            syncCounters();
+        }
+
+        private void deleteTicketTreeRemote(Ticket ticket) {
+            deleteBoardingPassesForTicketRemote(ticket);
+            luggageItems.stream()
+                    .filter(luggage -> luggage.getTicket() == ticket)
+                    .collect(Collectors.toList())
+                    .forEach(luggage -> deleteRemote("/luggages", luggageRemoteIds, luggage.getLuggageId()));
+            deleteRemote("/tickets", ticketRemoteIds, ticket.getTicketId());
+        }
+
+        private void deleteBoardingPassesForTicketRemote(Ticket ticket) {
+            boardingPasses.stream()
+                    .filter(pass -> pass.getTicket() == ticket)
+                    .collect(Collectors.toList())
+                    .forEach(pass -> deleteRemote("/boarding-passes", boardingPassRemoteIds, pass.getBoardingPassId()));
+        }
+
+        private void deleteRemote(String endpoint, Map<String, Long> remoteIds, String localId) {
+            Long remoteId = remoteIds.get(localId);
+            if (remoteId != null) {
+                apiClient.delete(endpoint + "/" + remoteId);
+            }
+        }
+
+        private void updateTicketRemote(Ticket ticket) {
+            if (ticket == null) {
+                return;
+            }
+            Long remoteId = ticketRemoteIds.get(ticket.getTicketId());
+            if (remoteId != null) {
+                apiClient.put("/tickets/" + remoteId, toRemoteTicket(ticket), RemoteTicket.class);
+            }
+        }
+
+        private void syncTicketStatusLocal(BoardingPass boardingPass) {
+            if (boardingPass == null || boardingPass.getTicket() == null) {
+                return;
+            }
+            Ticket ticket = boardingPass.getTicket();
+            if (ticket.getStatus() == TicketStatus.CANCELLED) {
+                return;
+            }
+            ticket.setStatus(boardingPass.getStatus() == BoardingPassStatus.BOARDED ? TicketStatus.BOARDED : TicketStatus.CHECKED_IN);
+        }
+
+        private RemoteFlight toRemoteFlight(Flight flight) {
+            RemoteFlight remote = new RemoteFlight();
+            remote.id = flightRemoteIds.get(flight.getFlightId());
+            remote.flightUid = flight.getFlightId();
+            remote.flightNumber = flight.getFlightNumber();
+            remote.aircraft = flight.getAircraft();
+            remote.departureAirport = flight.getOrigin();
+            remote.arrivalAirport = flight.getDestination();
+            remote.departureTime = flight.getDepartureTime();
+            remote.arrivalTime = flight.getArrivalTime();
+            remote.actualDeparture = flight.getActualDeparture();
+            remote.actualArrival = flight.getActualArrival();
+            remote.status = flight.getStatus().name();
+            return remote;
+        }
+
+        private RemotePassenger toRemotePassenger(Passenger passenger) {
+            RemotePassenger remote = new RemotePassenger();
+            remote.id = passengerRemoteIds.get(passenger.getPassengerId());
+            remote.passengerUid = passenger.getPassengerId();
+            remote.passportNumber = passenger.getPassportId();
+            remote.fullName = passenger.getFullName();
+            remote.dateOfBirth = passenger.getDateOfBirth();
+            remote.nationality = passenger.getNationality();
+            remote.email = passenger.getEmail();
+            remote.phone = passenger.getPhone();
+            return remote;
+        }
+
+        private RemoteTicket toRemoteTicket(Ticket ticket) {
+            RemoteTicket remote = new RemoteTicket();
+            remote.id = ticketRemoteIds.get(ticket.getTicketId());
+            remote.ticketUid = ticket.getTicketId();
+            remote.passenger = passengerRef(ticket.getPassenger());
+            remote.flight = flightRef(ticket.getFlight());
+            remote.seatNumber = ticket.getSeatNumber();
+            remote.seatClass = ticket.getSeatClass().name();
+            remote.price = BigDecimal.valueOf(ticket.getPrice());
+            remote.purchaseDate = ticket.getPurchaseDate().atStartOfDay();
+            remote.status = ticket.getStatus().name();
+            return remote;
+        }
+
+        private RemoteBoardingPass toRemoteBoardingPass(BoardingPass boardingPass) {
+            RemoteBoardingPass remote = new RemoteBoardingPass();
+            remote.id = boardingPassRemoteIds.get(boardingPass.getBoardingPassId());
+            remote.boardingPassUid = boardingPass.getBoardingPassId();
+            remote.ticket = ticketRef(boardingPass.getTicket());
+            remote.gate = boardingPass.getGate();
+            remote.boardingTime = boardingPass.getBoardingTime();
+            remote.status = boardingPass.getStatus().name();
+            return remote;
+        }
+
+        private RemoteLuggage toRemoteLuggage(Luggage luggage) {
+            RemoteLuggage remote = new RemoteLuggage();
+            remote.id = luggageRemoteIds.get(luggage.getLuggageId());
+            remote.luggageUid = luggage.getLuggageId();
+            remote.ticket = ticketRef(luggage.getTicket());
+            remote.weight = luggage.getWeight();
+            remote.status = luggage.getStatus().name();
+            remote.checkedInTime = luggage.getCheckedInAt();
+            return remote;
+        }
+
+        private RemoteSecurityLog toRemoteSecurityLog(SecurityLog log) {
+            RemoteSecurityLog remote = new RemoteSecurityLog();
+            remote.id = securityLogRemoteIds.get(log.getLogId());
+            remote.logUid = log.getLogId();
+            remote.passenger = passengerRef(log.getPassenger());
+            remote.employee = log.getEmployee() == null ? null : employeeRef(log.getEmployee());
+            remote.screeningDate = log.getScreeningTime().toLocalDate();
+            remote.screeningTime = log.getScreeningTime().toLocalTime();
+            remote.result = log.getResult().name();
+            remote.notes = log.getNotes();
+            return remote;
+        }
+
+        private RemoteEmployee toRemoteEmployee(Employee employee) {
+            RemoteEmployee remote = new RemoteEmployee();
+            remote.id = employeeRemoteIds.get(employee.getEmployeeId());
+            remote.employeeUid = employee.getEmployeeId();
+            remote.fullName = employee.getFullName();
+            remote.email = employee.getEmail();
+            remote.phone = employee.getPhone();
+            remote.department = employee.getDepartment();
+            remote.jobTitle = employee.getJobTitle();
+            return remote;
+        }
+
+        private RemotePassenger passengerRef(Passenger passenger) {
+            RemotePassenger remote = new RemotePassenger();
+            remote.id = requireRemoteId(passengerRemoteIds, passenger.getPassengerId(), "passenger");
+            return remote;
+        }
+
+        private RemoteFlight flightRef(Flight flight) {
+            RemoteFlight remote = new RemoteFlight();
+            remote.id = requireRemoteId(flightRemoteIds, flight.getFlightId(), "flight");
+            return remote;
+        }
+
+        private RemoteTicket ticketRef(Ticket ticket) {
+            RemoteTicket remote = new RemoteTicket();
+            remote.id = requireRemoteId(ticketRemoteIds, ticket.getTicketId(), "ticket");
+            return remote;
+        }
+
+        private RemoteEmployee employeeRef(Employee employee) {
+            RemoteEmployee remote = new RemoteEmployee();
+            remote.id = requireRemoteId(employeeRemoteIds, employee.getEmployeeId(), "employee");
+            return remote;
+        }
+
+        private Flight toFlight(RemoteFlight remote) {
+            return new Flight(
+                    fallback(remote.flightUid, "FLT-" + remote.id),
+                    fallback(remote.flightNumber, ""),
+                    fallback(remote.aircraft, ""),
+                    fallback(remote.departureAirport, ""),
+                    fallback(remote.arrivalAirport, ""),
+                    fallback(remote.departureTime, currentTimeFallback()),
+                    fallback(remote.arrivalTime, currentTimeFallback().plusHours(2)),
+                    remote.actualDeparture,
+                    remote.actualArrival,
+                    enumValue(FlightStatus.class, remote.status, FlightStatus.ON_TIME)
+            );
+        }
+
+        private Passenger toPassenger(RemotePassenger remote) {
+            return new Passenger(
+                    fallback(remote.passengerUid, "PAS-" + remote.id),
+                    fallback(remote.passportNumber, ""),
+                    fallback(remote.fullName, ""),
+                    fallback(remote.dateOfBirth, LocalDate.of(1995, 1, 1)),
+                    fallback(remote.nationality, ""),
+                    fallback(remote.email, ""),
+                    fallback(remote.phone, "")
+            );
+        }
+
+        private Ticket toTicket(RemoteTicket remote, Map<Long, Passenger> passengersById, Map<Long, Flight> flightsById) {
+            Passenger passenger = remote.passenger == null ? null : passengersById.get(remote.passenger.id);
+            Flight flight = remote.flight == null ? null : flightsById.get(remote.flight.id);
+            if (passenger == null || flight == null) {
+                return null;
+            }
+            return new Ticket(
+                    fallback(remote.ticketUid, "TCK-" + remote.id),
+                    passenger,
+                    flight,
+                    fallback(remote.seatNumber, ""),
+                    seatClassValue(remote.seatClass),
+                    remote.price == null ? 0.0 : remote.price.doubleValue(),
+                    remote.purchaseDate == null ? LocalDate.now() : remote.purchaseDate.toLocalDate(),
+                    enumValue(TicketStatus.class, remote.status, TicketStatus.BOOKED)
+            );
+        }
+
+        private BoardingPass toBoardingPass(RemoteBoardingPass remote, Map<Long, Ticket> ticketsById) {
+            Ticket ticket = remote.ticket == null ? null : ticketsById.get(remote.ticket.id);
+            if (ticket == null) {
+                return null;
+            }
+            return new BoardingPass(
+                    fallback(remote.boardingPassUid, "BDP-" + remote.id),
+                    ticket,
+                    fallback(remote.gate, ""),
+                    fallback(remote.boardingTime, currentTimeFallback()),
+                    enumValue(BoardingPassStatus.class, remote.status, BoardingPassStatus.ISSUED)
+            );
+        }
+
+        private Luggage toLuggage(RemoteLuggage remote, Map<Long, Ticket> ticketsById) {
+            Ticket ticket = remote.ticket == null ? null : ticketsById.get(remote.ticket.id);
+            if (ticket == null) {
+                return null;
+            }
+            return new Luggage(
+                    fallback(remote.luggageUid, "LUG-" + remote.id),
+                    ticket,
+                    remote.weight == null ? 0.0 : remote.weight,
+                    enumValue(LuggageStatus.class, remote.status, LuggageStatus.CHECKED_IN),
+                    fallback(remote.checkedInTime, currentTimeFallback())
+            );
+        }
+
+        private SecurityLog toSecurityLog(RemoteSecurityLog remote, Map<Long, Passenger> passengersById, Map<Long, Employee> employeesById) {
+            Passenger passenger = remote.passenger == null ? null : passengersById.get(remote.passenger.id);
+            if (passenger == null) {
+                return null;
+            }
+            Employee employee = remote.employee == null ? null : employeesById.get(remote.employee.id);
+            LocalDate screeningDate = fallback(remote.screeningDate, LocalDate.now());
+            LocalTime screeningTime = fallback(remote.screeningTime, LocalTime.MIDNIGHT);
+            return new SecurityLog(
+                    fallback(remote.logUid, "SEC-" + remote.id),
+                    passenger,
+                    employee,
+                    LocalDateTime.of(screeningDate, screeningTime),
+                    enumValue(SecurityResult.class, remote.result, SecurityResult.CLEARED),
+                    fallback(remote.notes, "")
+            );
+        }
+
+        private Employee toEmployee(RemoteEmployee remote) {
+            return new Employee(
+                    fallback(remote.employeeUid, "EMP-" + remote.id),
+                    fallback(remote.fullName, ""),
+                    fallback(remote.email, ""),
+                    fallback(remote.phone, ""),
+                    fallback(remote.department, ""),
+                    fallback(remote.jobTitle, "")
+            );
+        }
+
+        private void syncCounters() {
+            flightCounter = nextCounter(flights.stream().map(Flight::getFlightId).collect(Collectors.toList()));
+            passengerCounter = nextCounter(passengers.stream().map(Passenger::getPassengerId).collect(Collectors.toList()));
+            ticketCounter = nextCounter(tickets.stream().map(Ticket::getTicketId).collect(Collectors.toList()));
+            boardingCounter = nextCounter(boardingPasses.stream().map(BoardingPass::getBoardingPassId).collect(Collectors.toList()));
+            luggageCounter = nextCounter(luggageItems.stream().map(Luggage::getLuggageId).collect(Collectors.toList()));
+            securityCounter = nextCounter(securityLogs.stream().map(SecurityLog::getLogId).collect(Collectors.toList()));
+            employeeCounter = nextCounter(employees.stream().map(Employee::getEmployeeId).collect(Collectors.toList()));
+        }
+
+        private static int nextCounter(List<String> ids) {
+            return ids.stream()
+                    .map(MockAirportService::numericSuffix)
+                    .max(Integer::compareTo)
+                    .orElse(0) + 1;
+        }
+
+        private static Integer numericSuffix(String value) {
+            if (value == null) {
+                return 0;
+            }
+            String digits = value.replaceAll("\\D+", "");
+            if (digits.isEmpty()) {
+                return 0;
+            }
+            try {
+                return Integer.parseInt(digits);
+            } catch (NumberFormatException exception) {
+                return 0;
+            }
+        }
+
+        private static String nextId(String prefix, int value) {
+            return "%s-%04d".formatted(prefix, value);
+        }
+
+        private static void putRemoteId(Map<String, Long> remoteIds, String localId, Long remoteId) {
+            if (!isBlank(localId) && remoteId != null) {
+                remoteIds.put(localId, remoteId);
+            }
+        }
+
+        private static Long requireRemoteId(Map<String, Long> remoteIds, String localId, String label) {
+            Long remoteId = remoteIds.get(localId);
+            if (remoteId == null) {
+                throw new ApiException("Cannot find backend id for " + label + " " + localId + ".");
+            }
+            return remoteId;
+        }
+
+        private static Role parseRole(String value) {
+            return enumValue(Role.class, value, Role.OPERATIONS_STAFF);
+        }
+
+        private static SeatClass seatClassValue(String value) {
+            if (!isBlank(value)) {
+                for (SeatClass seatClass : SeatClass.values()) {
+                    if (seatClass.name().equalsIgnoreCase(value) || seatClass.getDisplayName().equalsIgnoreCase(value)) {
+                        return seatClass;
+                    }
+                }
+            }
+            return SeatClass.ECONOMY;
+        }
+
+        private static <E extends Enum<E>> E enumValue(Class<E> enumType, String value, E fallback) {
+            if (!isBlank(value)) {
+                String normalized = value.trim().toUpperCase().replace('-', '_').replace(' ', '_');
+                try {
+                    return Enum.valueOf(enumType, normalized);
+                } catch (IllegalArgumentException ignored) {
+                    return fallback;
+                }
+            }
+            return fallback;
+        }
+
+        private static <T> T fallback(T value, T fallback) {
+            return value == null ? fallback : value;
+        }
+
+        private static String fallback(String value, String fallback) {
+            return isBlank(value) ? fallback : value;
+        }
+
+        private static boolean isBlank(String value) {
+            return value == null || value.trim().isEmpty();
+        }
+
+        private static LocalDateTime currentTimeFallback() {
+            return LocalDateTime.now().withSecond(0).withNano(0);
+        }
+
+        private static final class ApiClient {
+            private final HttpClient httpClient = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+            private final ObjectMapper mapper = new ObjectMapper()
+                    .registerModule(new JavaTimeModule())
+                    .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                    .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+            private final String baseUrl;
+            private String token;
+
+            ApiClient(String baseUrl) {
+                this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+            }
+
+            void setToken(String token) {
+                this.token = token;
+            }
+
+            AuthResponse login(String email, String password) {
+                LoginPayload payload = new LoginPayload();
+                payload.username = email;
+                payload.password = password;
+                return post("/auth/login", payload, AuthResponse.class);
+            }
+
+            <T> List<T> getList(String path, Class<T> elementType) {
+                JavaType listType = mapper.getTypeFactory().constructCollectionType(List.class, elementType);
+                return send("GET", path, null, listType);
+            }
+
+            <T> T post(String path, Object payload, Class<T> responseType) {
+                return send("POST", path, payload, mapper.constructType(responseType));
+            }
+
+            <T> T put(String path, Object payload, Class<T> responseType) {
+                return send("PUT", path, payload, mapper.constructType(responseType));
+            }
+
+            void delete(String path) {
+                send("DELETE", path, null, mapper.constructType(Void.class));
+            }
+
+            private <T> T send(String method, String path, Object payload, JavaType responseType) {
+                try {
+                    HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                            .timeout(Duration.ofSeconds(20))
+                            .header("Accept", "application/json");
+                    if (!isBlank(token)) {
+                        builder.header("Authorization", "Bearer " + token);
+                    }
+                    if (payload == null) {
+                        builder.method(method, HttpRequest.BodyPublishers.noBody());
+                    } else {
+                        builder.header("Content-Type", "application/json");
+                        builder.method(method, HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload), StandardCharsets.UTF_8));
+                    }
+
+                    HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    int status = response.statusCode();
+                    if (status >= 200 && status < 300) {
+                        if (responseType.getRawClass() == Void.class || response.body() == null || response.body().isBlank()) {
+                            return null;
+                        }
+                        return mapper.readValue(response.body(), responseType);
+                    }
+                    if (status == 401 || status == 403) {
+                        throw new ApiException("Invalid credentials or expired session.");
+                    }
+                    String responseBody = response.body() == null ? "" : response.body().trim();
+                    if (responseBody.length() > 500) {
+                        responseBody = responseBody.substring(0, 500) + "...";
+                    }
+                    String detail = responseBody.isBlank() ? "" : " Detail: " + responseBody;
+                    throw new ApiException("Backend returned HTTP " + status + " for " + method + " " + path + "." + detail);
+                } catch (ConnectException exception) {
+                    throw new ApiException("Backend is not running on " + baseUrl + ".");
+                } catch (IOException exception) {
+                    throw new ApiException("Cannot connect to backend: " + exception.getMessage());
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new ApiException("Request was interrupted.");
+                }
+            }
+        }
+
+        private static final class ApiException extends RuntimeException {
+            ApiException(String message) {
+                super(message);
+            }
+        }
+
+        private static final class LoginPayload {
+            public String username;
+            public String password;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class AuthResponse {
+            public String token;
+            public String fullName;
+            public String role;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteFlight {
+            public Long id;
+            public String flightUid;
+            public String flightNumber;
+            public String aircraft;
+            public String departureAirport;
+            public String arrivalAirport;
+            public LocalDateTime departureTime;
+            public LocalDateTime arrivalTime;
+            public LocalDateTime actualDeparture;
+            public LocalDateTime actualArrival;
+            public String status;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemotePassenger {
+            public Long id;
+            public String passengerUid;
+            public String passportNumber;
+            public String fullName;
+            public LocalDate dateOfBirth;
+            public String nationality;
+            public String email;
+            public String phone;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteTicket {
+            public Long id;
+            public String ticketUid;
+            public RemotePassenger passenger;
+            public RemoteFlight flight;
+            public String seatNumber;
+            public String seatClass;
+            public BigDecimal price;
+            public LocalDateTime purchaseDate;
+            public String status;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteBoardingPass {
+            public Long id;
+            public String boardingPassUid;
+            public RemoteTicket ticket;
+            public String gate;
+            public LocalDateTime boardingTime;
+            public String status;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteLuggage {
+            public Long id;
+            public String luggageUid;
+            public RemoteTicket ticket;
+            public Double weight;
+            public String status;
+            public LocalDateTime checkedInTime;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteSecurityLog {
+            public Long id;
+            public String logUid;
+            public RemotePassenger passenger;
+            public RemoteEmployee employee;
+            public LocalDate screeningDate;
+            public LocalTime screeningTime;
+            public String result;
+            public String notes;
+        }
+
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        private static final class RemoteEmployee {
+            public Long id;
+            public String employeeUid;
+            public String fullName;
+            public String email;
+            public String phone;
+            public String department;
+            public String jobTitle;
         }
     }
 

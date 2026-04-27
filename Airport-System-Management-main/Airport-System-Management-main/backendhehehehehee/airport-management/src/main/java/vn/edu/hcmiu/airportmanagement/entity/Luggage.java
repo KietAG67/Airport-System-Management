@@ -14,7 +14,7 @@ public class Luggage {
     @Column(name = "luggage_uid", unique = true)
     private String luggageUid;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "ticket_id")
     private Ticket ticket;
 

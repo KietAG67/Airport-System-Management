@@ -1,7 +1,9 @@
 package vn.edu.hcmiu.airportmanagement.service;
 
 import vn.edu.hcmiu.airportmanagement.entity.Luggage;
+import vn.edu.hcmiu.airportmanagement.entity.Ticket;
 import vn.edu.hcmiu.airportmanagement.repository.LuggageRepository;
+import vn.edu.hcmiu.airportmanagement.repository.TicketRepository;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
@@ -10,9 +12,11 @@ import java.util.Optional;
 public class LuggageService {
 
     private final LuggageRepository luggageRepository;
+    private final TicketRepository ticketRepository;
 
-    public LuggageService(LuggageRepository luggageRepository) {
+    public LuggageService(LuggageRepository luggageRepository, TicketRepository ticketRepository) {
         this.luggageRepository = luggageRepository;
+        this.ticketRepository = ticketRepository;
     }
 
     public List<Luggage> getAll() {
@@ -31,6 +35,7 @@ public class LuggageService {
         if (luggage.getLuggageUid() == null || luggage.getLuggageUid().isBlank()) {
             luggage.setLuggageUid(generateUid());
         }
+        luggage.setTicket(resolveTicket(luggage.getTicket()));
         return luggageRepository.save(luggage);
     }
 
@@ -38,7 +43,7 @@ public class LuggageService {
         Luggage luggage = luggageRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Not found"));
         luggage.setLuggageUid(updated.getLuggageUid());
-        luggage.setTicket(updated.getTicket());
+        luggage.setTicket(resolveTicket(updated.getTicket()));
         luggage.setWeight(updated.getWeight());
         luggage.setStatus(updated.getStatus());
         luggage.setCheckedInTime(updated.getCheckedInTime());
@@ -52,5 +57,13 @@ public class LuggageService {
     private String generateUid() {
         long count = luggageRepository.count();
         return String.format("LUG-%04d", count + 1);
+    }
+
+    private Ticket resolveTicket(Ticket ticket) {
+        if (ticket == null || ticket.getId() == null) {
+            throw new RuntimeException("Ticket is required");
+        }
+        return ticketRepository.findById(ticket.getId())
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
     }
 }

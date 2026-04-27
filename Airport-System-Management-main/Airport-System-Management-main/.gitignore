@@ -1,9 +1,0 @@
-target/
-*.class
-*.log
-.idea/
-.vscode/
-*.iml
-out/
-.DS_Store
-Thumbs.db

@@ -42,6 +42,7 @@ public class PassengerService {
         passenger.setPassportNumber(updated.getPassportNumber());
         passenger.setEmail(updated.getEmail());
         passenger.setPhone(updated.getPhone());
+        passenger.setDateOfBirth(updated.getDateOfBirth());
         passenger.setNationality(updated.getNationality());
         return passengerRepository.save(passenger);
     }

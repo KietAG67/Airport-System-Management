@@ -29,6 +29,30 @@ run-app.bat
 
 `run-app.bat` starts the backend on port `8080`, waits for it to become available, then opens the JavaFX frontend.
 
+## Import TSN SQL Data
+
+The files in `database/` use an older SQL schema, so do not run them directly against the H2 database. Use the import script while the backend is running. It reads the SQL file, maps the data to the current REST API schema, then creates or updates records by UID.
+
+Import the large dataset:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\import-tsn-data.ps1 -Dataset large
+```
+
+Import the smaller dataset:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\import-tsn-data.ps1 -Dataset small
+```
+
+Preview without writing:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\import-tsn-data.ps1 -Dataset large -DryRun
+```
+
+The script imports aircraft names into flights and imports employees, passengers, flights, tickets, boarding passes, luggage, and security logs. `Crew_Flight` and `Security_Restricted_Items` are ignored because the current backend/frontend has no matching entities or screens for those tables.
+
 To use MySQL instead of the default H2 file database, set these environment variables before running:
 
 ```bat
@@ -43,7 +67,10 @@ run-app.bat
 ```text
 run-app.bat
 run-app.ps1
+import-tsn-data.ps1
 pom.xml
+database/tsn_data.sql
+database/tsn_data_large.sql
 src/main/java/com/airport/AirportManagementApp.java
 src/main/resources/styles/app.css
 Airport-System-Management-main/Airport-System-Management-main/backendhehehehehee/airport-management/pom.xml

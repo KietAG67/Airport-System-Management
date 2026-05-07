@@ -61,6 +61,7 @@ public class TicketService {
         ticket.setPrice(updated.getPrice());
         ticket.setPurchaseDate(updated.getPurchaseDate());
         ticket.setStatus(updated.getStatus());
+        ticket.setTerminal(updated.getTerminal());
         return ticketRepository.save(ticket);
     }
 

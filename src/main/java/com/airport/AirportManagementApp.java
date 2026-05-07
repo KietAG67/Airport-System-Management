@@ -62,6 +62,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -496,7 +497,7 @@ public class AirportManagementApp extends Application {
                 case DASHBOARD -> new DashboardView();
                 case FLIGHT_MANAGEMENT -> new FlightsView();
                 case PASSENGER_MANAGEMENT -> new PassengersView();
-                case TICKET_MANAGEMENT -> new TicketsView();
+                case TICKET_MANAGEMENT -> {TicketsView view = new TicketsView(); yield view;}
                 case BOARDING_PASS -> new BoardingPassView();
                 case LUGGAGE -> new LuggageView();
                 case SECURITY_LOG -> new SecurityLogView(user);
@@ -1144,18 +1145,27 @@ public class AirportManagementApp extends Application {
         }
 
         private void configureTable() {
+            table.setTableMenuButtonVisible(true);
             table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
             table.setPlaceholder(new Label("No tickets"));
+
+            // Các cột mặc định
             table.getColumns().addAll(
                     stringColumn("Ticket ID", Ticket::getTicketId, 110),
                     stringColumn("Passenger", ticket -> ticket.getPassenger().getFullName(), 170),
                     stringColumn("Flight", ticket -> ticket.getFlight().getFlightNumber(), 120),
+                    stringColumn("Terminal", ticket -> ticket.getTerminal() == null ? "N/A" : ticket.getTerminal(), 80),
                     stringColumn("Seat Number", Ticket::getSeatNumber, 100),
                     stringColumn("Seat Class", ticket -> ticket.getSeatClass().getDisplayName(), 110),
-                    stringColumn("Price", ticket -> String.format("$%.2f", ticket.getPrice()), 100),
+                    stringColumn("Price", ticket -> String.format("%.2f %s", ticket.getPrice(), "VNĐ"), 100),
                     stringColumn("Purchase Date", ticket -> formatDate(ticket.getPurchaseDate()), 130),
                     stringColumn("Status", ticket -> ticket.getStatus().getDisplayName(), 100)
             );
+
+            // Cột Luggage Weight mặc định ẩn, khi nào bấm dấu (+) ở góc bảng mới hiện
+        TableColumn<Ticket, String> luggage = stringColumn("Luggage Weight", Ticket::getLuggageSummary, 120);
+        luggage.setVisible(false); 
+        table.getColumns().add(luggage);
         }
 
         private void applyFilter() {
@@ -1163,17 +1173,68 @@ public class AirportManagementApp extends Application {
             TicketStatus selectedStatus = statusFilter.getValue();
 
             filteredTickets.setPredicate(ticket -> {
-                boolean matchesKeyword = keyword.isEmpty()
+                boolean matchesKeyword;
+                if (keyword.startsWith(">") || keyword.startsWith("<")) {
+                matchesKeyword = handleNumericSearch(ticket, keyword);
+                } else {
+                matchesKeyword = keyword.isEmpty()
                         || ticket.getTicketId().toLowerCase().contains(keyword)
                         || ticket.getPassenger().getFullName().toLowerCase().contains(keyword)
                         || ticket.getPassenger().getPassengerId().toLowerCase().contains(keyword)
                         || ticket.getFlight().getFlightNumber().toLowerCase().contains(keyword)
-                        || ticket.getFlight().getFlightId().toLowerCase().contains(keyword);
+                        || ticket.getFlight().getFlightId().toLowerCase().contains(keyword)
+                        || (ticket.getLuggageSummary() != null && ticket.getLuggageSummary().toLowerCase().contains(keyword));
+                }
                 boolean matchesStatus = selectedStatus == null || ticket.getStatus() == selectedStatus;
                 return matchesKeyword && matchesStatus;
             });
         }
 
+        private boolean handleNumericSearch(Ticket ticket, String input) {
+            try {
+                // 1. Xác định loại tìm kiếm
+                boolean isWeightSearch = input.contains("w");
+                boolean isPriceSearch = input.contains("p");
+
+                // 2. Làm sạch chuỗi: Chỉ giữ lại ký hiệu và số
+                String cleanInput = input.replaceAll("[a-zA-Z\\s]", ""); // Xóa chữ và khoảng trắng
+                
+                if (cleanInput.length() < 2) return false; // Tránh lỗi nếu chỉ gõ mỗi ">"
+
+                // 3. Tách ký hiệu và số từ chuỗi ĐÃ LÀM SẠCH
+                String symbol = cleanInput.substring(0, 1);
+                double threshold = Double.parseDouble(cleanInput.substring(1));
+
+                // 4. Lấy dữ liệu thực tế
+                double ticketWeight = extractWeightNumber(ticket.getLuggageSummary());
+                double ticketPrice = ticket.getPrice();
+
+                // 5. So sánh dựa trên loại tìm kiếm
+                if (isWeightSearch) {
+                    return symbol.equals(">") ? ticketWeight > threshold : ticketWeight < threshold;
+                } else if (isPriceSearch) {
+                    return symbol.equals(">") ? ticketPrice > threshold : ticketPrice < threshold;
+                } else {
+                    // Nếu không gõ 'w' hay 'p', mặc định tìm cả hai (tiện cho người dùng)
+                    if (symbol.equals(">")) return ticketWeight > threshold || ticketPrice > threshold;
+                    if (symbol.equals("<")) return ticketWeight < threshold || ticketPrice < threshold;
+                    return false;
+                }
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        // Hàm phụ để chuyển chuỗi "21.50 kg" thành số 21.50
+        private double extractWeightNumber(String weightStr) {
+            if (weightStr == null || weightStr.equals("N/A")) return 0;
+            try {
+                return Double.parseDouble(weightStr.replaceAll("[^0-9.]", ""));
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+         
         private void handleAdd() {
             if (mockService.getPassengers().isEmpty() || mockService.getFlights().isEmpty()) {
                 showError("Add Ticket", "Passengers and flights are required before creating a ticket.");
@@ -1187,6 +1248,7 @@ public class AirportManagementApp extends Application {
                             mockService.nextTicketId(),
                             formData.passenger(),
                             formData.flight(),
+                            formData.terminal(),
                             formData.seatNumber(),
                             formData.seatClass(),
                             formData.price(),
@@ -1208,8 +1270,10 @@ public class AirportManagementApp extends Application {
 
             Optional<TicketFormData> result = showTicketDialog(selected);
             result.ifPresent(formData -> {
+                System.out.println("Terminal chon la: " + formData.terminal());
                 selected.setPassenger(formData.passenger());
                 selected.setFlight(formData.flight());
+                selected.setTerminal(formData.terminal());
                 selected.setSeatNumber(formData.seatNumber());
                 selected.setSeatClass(formData.seatClass());
                 selected.setPrice(formData.price());
@@ -1251,6 +1315,10 @@ public class AirportManagementApp extends Application {
             dialog.getDialogPane().setPrefWidth(500);
 
             TextField idField = createReadOnlyField(editMode ? existing.getTicketId() : "Auto-generated on save");
+            
+            ComboBox<String> terminalBox = new ComboBox<>(FXCollections.observableArrayList("T1", "T2", "T3"));
+            terminalBox.setValue(editMode ? existing.getTerminal() : "T1");
+
             ComboBox<Passenger> passengerBox = new ComboBox<>(mockService.getPassengers());
             passengerBox.setConverter(enumConverter(AirportManagementApp.this::passengerDisplay, ""));
             passengerBox.setValue(editMode ? existing.getPassenger() : null);
@@ -1280,18 +1348,20 @@ public class AirportManagementApp extends Application {
             grid.addRow(0, new Label("Ticket ID"), idField);
             grid.addRow(1, new Label("Passenger"), passengerBox);
             grid.addRow(2, new Label("Flight"), flightBox);
-            grid.addRow(3, new Label("Seat Number"), seatNumberField);
-            grid.addRow(4, new Label("Seat Class"), seatClassBox);
-            grid.addRow(5, new Label("Price"), priceField);
-            grid.addRow(6, new Label("Purchase Date"), purchaseDatePicker);
-            grid.addRow(7, new Label("Status"), statusBox);
-            grid.add(errorLabel, 0, 8, 2, 1);
+            grid.addRow(3, new Label("Terminal"), terminalBox); // THÊM VÀO GRID
+            grid.addRow(4, new Label("Seat Number"), seatNumberField);
+            grid.addRow(5, new Label("Seat Class"), seatClassBox);
+            grid.addRow(6, new Label("Price"), priceField);
+            grid.addRow(7, new Label("Purchase Date"), purchaseDatePicker);
+            grid.addRow(8, new Label("Status"), statusBox);
+            grid.add(errorLabel, 0, 9, 2, 1);
             dialog.getDialogPane().setContent(grid);
 
             Node saveButton = dialog.getDialogPane().lookupButton(saveType);
             saveButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
                 Passenger passenger = passengerBox.getValue();
                 Flight flight = flightBox.getValue();
+                String terminal = terminalBox.getValue();
                 String seatNumber = trim(seatNumberField.getText());
                 SeatClass seatClass = seatClassBox.getValue();
                 String priceRaw = trim(priceField.getText());
@@ -1299,7 +1369,7 @@ public class AirportManagementApp extends Application {
                 TicketStatus status = statusBox.getValue();
 
                 if (passenger == null || flight == null || isBlank(seatNumber) || seatClass == null
-                        || isBlank(priceRaw) || purchaseDate == null || status == null) {
+                        || isBlank(priceRaw) || purchaseDate == null || status == null || isBlank(terminal)) {
                     errorLabel.setText("All fields are required.");
                     event.consume();
                     return;
@@ -1322,6 +1392,7 @@ public class AirportManagementApp extends Application {
                 dialog.setResult(new TicketFormData(
                         passenger,
                         flight,
+                        terminal,
                         seatNumber,
                         seatClass,
                         price,
@@ -1335,6 +1406,18 @@ public class AirportManagementApp extends Application {
 
         @Override
         public void refresh() {
+
+            ObservableList<Luggage> allLuggage = mockService.getLuggageItems();
+
+            for (Ticket ticket : mockService.getTickets()) {
+
+                List<Luggage> ticketLuggage = allLuggage.stream()
+                    .filter(l -> l.getTicket().getTicketId().equals(ticket.getTicketId()))
+                    .toList();
+
+                ticket.setLuggages(ticketLuggage);
+            }
+
             applyFilter();
             table.refresh();
         }
@@ -2369,6 +2452,7 @@ public class AirportManagementApp extends Application {
     private record TicketFormData(
             Passenger passenger,
             Flight flight,
+            String terminal,
             String seatNumber,
             SeatClass seatClass,
             double price,
@@ -2935,6 +3019,9 @@ public class AirportManagementApp extends Application {
             remote.price = BigDecimal.valueOf(ticket.getPrice());
             remote.purchaseDate = ticket.getPurchaseDate().atStartOfDay();
             remote.status = ticket.getStatus().name();
+            remote.terminal = ticket.getTerminal();
+            System.out.println("Gửi lên backend terminal: " + remote.terminal);
+            System.out.println("JSON gửi lên backend - terminal: " + remote.terminal); // thêm dòng này
             return remote;
         }
 
@@ -3037,6 +3124,7 @@ public class AirportManagementApp extends Application {
         }
 
         private Ticket toTicket(RemoteTicket remote, Map<Long, Passenger> passengersById, Map<Long, Flight> flightsById) {
+            System.out.println("Backend trả về terminal: " + remote.terminal); // thêm dòng này
             Passenger passenger = remote.passenger == null ? null : passengersById.get(remote.passenger.id);
             Flight flight = remote.flight == null ? null : flightsById.get(remote.flight.id);
             if (passenger == null || flight == null) {
@@ -3046,11 +3134,12 @@ public class AirportManagementApp extends Application {
                     fallback(remote.ticketUid, "TCK-" + remote.id),
                     passenger,
                     flight,
+                    fallback(remote.terminal, "T1"),
                     fallback(remote.seatNumber, ""),
                     seatClassValue(remote.seatClass),
                     remote.price == null ? 0.0 : remote.price.doubleValue(),
-                    remote.purchaseDate == null ? LocalDate.now() : remote.purchaseDate.toLocalDate(),
-                    enumValue(TicketStatus.class, remote.status, TicketStatus.BOOKED)
+                    fallback(remote.purchaseDate, LocalDate.now().atStartOfDay()).toLocalDate(),
+                    enumValue(TicketStatus.class, remote.status, TicketStatus.CHECKED_IN)
             );
         }
 
@@ -3346,6 +3435,7 @@ public class AirportManagementApp extends Application {
             public BigDecimal price;
             public LocalDateTime purchaseDate;
             public String status;
+            public String terminal;
         }
 
         @JsonIgnoreProperties(ignoreUnknown = true)
@@ -3749,17 +3839,45 @@ public class AirportManagementApp extends Application {
         private final String ticketId;
         private Passenger passenger;
         private Flight flight;
+        private String terminal;
         private String seatNumber;
         private SeatClass seatClass;
         private double price;
         private LocalDate purchaseDate;
         private TicketStatus status;
 
-        Ticket(String ticketId, Passenger passenger, Flight flight, String seatNumber,
+        private List<Luggage> luggages = new ArrayList<>();
+
+        public List<Luggage> getLuggages() {
+            return luggages;
+        }
+        public void setLuggages(List<Luggage> luggages) {
+            this.luggages = luggages;
+        }
+        public double getTotalLuggageWeight() {
+            return luggages.stream()
+            .mapToDouble(Luggage::getWeight)
+            .sum();
+        }
+        public int getLuggageCount() {
+            return luggages.size();
+        }
+        public String getLuggageSummary() {
+            if (luggages == null || luggages.isEmpty()) return "N/A";
+
+            double total = luggages.stream()
+            .mapToDouble(Luggage::getWeight)
+            .sum();
+
+            return luggages.size() + " items (" + String.format("%.2f kg", total) + ")";
+        }
+
+        Ticket(String ticketId, Passenger passenger, Flight flight, String terminal, String seatNumber,
                SeatClass seatClass, double price, LocalDate purchaseDate, TicketStatus status) {
             this.ticketId = ticketId;
             this.passenger = passenger;
             this.flight = flight;
+            this.terminal = terminal;
             this.seatNumber = seatNumber;
             this.seatClass = seatClass;
             this.price = price;
@@ -3769,6 +3887,14 @@ public class AirportManagementApp extends Application {
 
         public String getTicketId() {
             return ticketId;
+        }
+
+        public String getTerminal() {
+            return terminal;
+        }
+
+        public void setTerminal(String terminal) {
+            this.terminal = terminal;
         }
 
         public Passenger getPassenger() {

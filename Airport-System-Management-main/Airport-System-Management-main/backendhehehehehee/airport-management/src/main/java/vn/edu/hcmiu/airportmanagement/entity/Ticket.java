@@ -34,17 +34,21 @@ public class Ticket {
     @Column(name = "purchase_date")
     private LocalDateTime purchaseDate;
 
+    @Column(name = "terminal")
+    private String terminal;
+
     private String status;
 
     public Ticket() {}
 
-    public Ticket(Long id, String ticketUid, Passenger passenger, Flight flight,
+    public Ticket(Long id, String ticketUid, Passenger passenger, Flight flight, String terminal,
                   String seatNumber, String seatClass, BigDecimal price,
                   LocalDateTime purchaseDate, String status) {
         this.id = id;
         this.ticketUid = ticketUid;
         this.passenger = passenger;
         this.flight = flight;
+        this.terminal = terminal;
         this.seatNumber = seatNumber;
         this.seatClass = seatClass;
         this.price = price;
@@ -70,4 +74,6 @@ public class Ticket {
     public void setPurchaseDate(LocalDateTime purchaseDate) { this.purchaseDate = purchaseDate; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getTerminal() { return terminal; }
+    public void setTerminal(String terminal) { this.terminal = terminal; }
 }
